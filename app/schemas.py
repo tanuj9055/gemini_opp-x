@@ -1,0 +1,320 @@
+"""
+Pydantic models for the GeM Procurement Audit Service — Schema v2.0
+
+
+"""
+
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+# ────────────────────────────────────────────────────────
+# Enums
+# ────────────────────────────────────────────────────────
+
+class RequirementClarity(str, Enum):
+    """How clearly the bid document states this requirement."""
+    CLEAR = "CLEAR"
+    AMBIGUOUS = "AMBIGUOUS"
+    NOT_FOUND = "NOT_FOUND"
+
+
+class ComplianceStatus(str, Enum):
+    """Vendor compliance against a criterion.
+    UNKNOWN = bid-extraction only (no vendor data yet).
+    """
+    UNKNOWN = "UNKNOWN"
+    MET = "MET"
+    NOT_MET = "NOT_MET"
+    PARTIAL = "PARTIAL"
+
+
+class ComparisonOperator(str, Enum):
+    """Machine-evaluable comparisons for structured required_value."""
+    GTE = ">="
+    LTE = "<="
+    EQ = "=="
+    GT = ">"
+    LT = "<"
+    IN = "IN"
+    BOOLEAN = "BOOLEAN"
+    BETWEEN = "BETWEEN"
+
+
+class RiskCategory(str, Enum):
+    """Taxonomy separating systemic GeM boilerplate from actual risks."""
+    SYSTEMIC_GEM_RISK = "SYSTEMIC_GEM_RISK"
+    BUYER_ATC_RISK = "BUYER_ATC_RISK"
+    BID_SPECIFIC_COMPLIANCE_RISK = "BID_SPECIFIC_COMPLIANCE_RISK"
+    VENDOR_DOCUMENT_RISK = "VENDOR_DOCUMENT_RISK"
+
+
+class Severity(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+# ────────────────────────────────────────────────────────
+# Shared sub-models
+# ────────────────────────────────────────────────────────
+
+class BoundingBox(BaseModel):
+    """Normalised 0–1000 bounding box for UI highlight overlay."""
+    ymin: float = Field(..., ge=0, le=1000)
+    xmin: float = Field(..., ge=0, le=1000)
+    ymax: float = Field(..., ge=0, le=1000)
+    xmax: float = Field(..., ge=0, le=1000)
+
+
+class DocumentReference(BaseModel):
+    """Reusable pointer to a specific location in a source PDF."""
+    reference_id: Optional[str] = Field(
+        None,
+        description="Unique ID (e.g. 'ref-001') for deduplication and cross-criterion reuse",
+    )
+    filename: str
+    page: Optional[int] = Field(None, ge=1)
+    section: Optional[str] = None
+    clause: Optional[str] = Field(None, description="Clause number, e.g. 'ATC-4.2'")
+    bounding_box: Optional[BoundingBox] = None
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class StructuredRequirement(BaseModel):
+    """Machine-evaluable requirement — replaces free-text required_value."""
+    comparison_operator: Optional[ComparisonOperator] = Field(
+        None, description="How to compare: >=, ==, IN, BOOLEAN, etc."
+    )
+    numeric_value: Optional[float] = Field(None, description="Threshold number if applicable")
+    unit: Optional[str] = Field(
+        None,
+        description="Unit: INR, years, percentage, count, boolean, enum, etc.",
+    )
+    text_value: Optional[str] = Field(
+        None,
+        description="For IN/BOOLEAN/enum: the allowed values or description",
+    )
+    raw_text: Optional[str] = Field(
+        None,
+        description="Original text from the document, verbatim",
+    )
+
+
+class EligibilityCriterion(BaseModel):
+    """A single eligibility criterion — v2 with split status semantics."""
+    criterion_id: Optional[str] = Field(
+        None, description="Machine-friendly ID, e.g. 'FINANCIAL_TURNOVER_BIDDER'"
+    )
+    criterion: str = Field(..., description="Human-readable criterion name")
+
+    # ── Split status model ──
+    bid_requirement_clarity: RequirementClarity = Field(
+        default=RequirementClarity.CLEAR,
+        description="How clearly the bid document states this requirement",
+    )
+    vendor_compliance_status: ComplianceStatus = Field(
+        default=ComplianceStatus.UNKNOWN,
+        description="Vendor compliance. UNKNOWN during bid extraction (no vendor data yet)",
+    )
+
+    detail: str = Field(default="", description="Explanation / audit narrative")
+    extracted_value: Optional[str] = Field(None, description="Value found in vendor docs (Stage 2)")
+    required_value: Optional[StructuredRequirement] = Field(
+        None, description="Machine-evaluable requirement from the bid"
+    )
+    required_value_raw: Optional[str] = Field(
+        None, description="Original free-text requirement as stated in document"
+    )
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    risk_level: Optional[Severity] = None
+    risk_reasoning: Optional[str] = None
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class Relaxation(BaseModel):
+    """A preference / relaxation (MSE, Startup, MII, etc.)"""
+    criterion_id: Optional[str] = Field(None, description="e.g. 'MSE_PREFERENCE'")
+    criterion: str = Field(..., description="Human-readable name")
+    is_applicable: Optional[bool] = Field(
+        None, description="Whether the bid enables this relaxation (Yes/No in document)"
+    )
+    vendor_compliance_status: ComplianceStatus = Field(
+        default=ComplianceStatus.UNKNOWN,
+        description="Vendor eligibility for this relaxation",
+    )
+    detail: str = Field(default="")
+    extracted_value: Optional[str] = None
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class RiskFlag(BaseModel):
+    """A categorised risk with taxonomy."""
+    risk_id: Optional[str] = Field(None, description="Unique risk ID, e.g. 'RISK-001'")
+    category: RiskCategory = Field(
+        default=RiskCategory.BID_SPECIFIC_COMPLIANCE_RISK,
+        description="Risk taxonomy bucket",
+    )
+    severity: Severity = Field(default=Severity.MEDIUM)
+    title: Optional[str] = Field(None, description="Short risk title")
+    description: str = Field(default="")
+    recommendation: str = Field(default="")
+    affected_criteria: List[str] = Field(
+        default_factory=list,
+        description="criterion_id list this risk impacts",
+    )
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class NormalizationMeta(BaseModel):
+    """Token / usage accounting."""
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    model: Optional[str] = None
+    processing_time_seconds: Optional[float] = None
+
+
+# ────────────────────────────────────────────────────────
+# Stage 1 — Bid Analysis Response (v2.0)
+# ────────────────────────────────────────────────────────
+
+class EMDDetails(BaseModel):
+    amount: Optional[str] = None
+    currency: Optional[str] = Field(default="INR")
+    bank: Optional[str] = None
+    beneficiary: Optional[str] = None
+    exemption_available: Optional[bool] = Field(
+        None, description="Whether MSE/Startup exemption is noted"
+    )
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class DeliveryItem(BaseModel):
+    """Flattened, DB-friendly scope of work line item."""
+    item_code: Optional[str] = Field(None, description="GeM item/service code")
+    item_name: Optional[str] = None
+    description: Optional[str] = None
+    consignee: Optional[str] = Field(None, description="Delivery location / consignee name")
+    quantity: Optional[float] = None
+    unit: Optional[str] = Field(None, description="e.g. 'pages', 'units', 'lots'")
+    delivery_days: Optional[int] = Field(None, description="Delivery period in days")
+    delivery_window: Optional[str] = Field(
+        None, description="Start–end date range if specified"
+    )
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class ScopeOfWork(BaseModel):
+    technical_specs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    delivery_items: List[DeliveryItem] = Field(
+        default_factory=list,
+        description="Flattened line items — replaces nested timelines.details[]",
+    )
+    timelines: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Overall timeline metadata (contract period, milestones)",
+    )
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class SimilarServicesRule(BaseModel):
+    """Tiered similar-service qualification option."""
+    option_label: str = Field(..., description="e.g. '3 projects @ 40%'")
+    min_projects: Optional[int] = None
+    min_percentage_of_bid: Optional[float] = None
+    references: List[DocumentReference] = Field(default_factory=list)
+
+
+class BidAnalysisResponse(BaseModel):
+    """POST /analyze-bid response — Schema v2.0
+
+    Key order:
+      schema_version → source → bid_id → metadata →
+      eligibility_criteria → emd → scope_of_work → relaxations →
+      similar_services_rules → risks → normalization_meta → raw_ocr_text
+    """
+
+    schema_version: str = Field(default="2.0.0")
+    source: Optional[str] = Field(default=None)
+    bid_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    eligibility_criteria: List[EligibilityCriterion] = Field(default_factory=list)
+    emd: Optional[EMDDetails] = None
+    scope_of_work: Optional[ScopeOfWork] = None
+    relaxations: List[Relaxation] = Field(default_factory=list)
+    similar_services_rules: List[SimilarServicesRule] = Field(default_factory=list)
+    risks: List[RiskFlag] = Field(default_factory=list)
+
+    normalization_meta: Optional[NormalizationMeta] = None
+    raw_ocr_text: Optional[str] = Field(
+        None, description="Full OCR text dump — MUST be the last key",
+    )
+
+
+# ────────────────────────────────────────────────────────
+# Stage 2 — Vendor Evaluation Response (v2.0)
+# ────────────────────────────────────────────────────────
+
+class VendorProfile(BaseModel):
+    name: Optional[str] = None
+    pan: Optional[str] = None
+    gst: Optional[str] = None
+    address: Optional[str] = None
+    registration_state: Optional[str] = None
+    mse_status: Optional[bool] = None
+    startup_status: Optional[bool] = None
+    mse_certificate_valid_until: Optional[str] = None
+    startup_certificate_valid_until: Optional[str] = None
+
+
+class VendorEvaluationResponse(BaseModel):
+    """POST /evaluate-vendor response — Schema v2.0
+
+    Key order:
+      schema_version → source → bid_id → metadata →
+      vendor_profile → eligibility_score →
+      financial_turnover → experience → similar_services →
+      location_verification → relaxations → risks →
+      overall_recommendation → rejection_reasons →
+      normalization_meta → raw_ocr_text
+    """
+
+    schema_version: str = Field(default="2.0.0")
+    source: Optional[str] = None
+    bid_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    vendor_profile: Optional[VendorProfile] = None
+
+    eligibility_score: float = Field(
+        default=0.0, ge=0, le=100,
+        description="Composite eligibility score 0-100",
+    )
+
+    # Criterion-wise results (each is a full EligibilityCriterion)
+    financial_turnover: Optional[EligibilityCriterion] = None
+    experience: Optional[EligibilityCriterion] = None
+    similar_services: Optional[EligibilityCriterion] = None
+    location_verification: Optional[EligibilityCriterion] = None
+
+    relaxations: List[Relaxation] = Field(default_factory=list)
+    risks: List[RiskFlag] = Field(default_factory=list)
+
+    overall_recommendation: Optional[str] = Field(
+        None, description="APPROVE / REJECT / REVIEW"
+    )
+    rejection_reasons: List[str] = Field(
+        default_factory=list,
+        description="Audit-grade reasons if REJECT — deterministic from criteria",
+    )
+
+    normalization_meta: Optional[NormalizationMeta] = None
+    raw_ocr_text: Optional[str] = None
