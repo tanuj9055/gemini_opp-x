@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "DEBUG"
 
+    # ── AWS / S3 ──────────────────────────────────────
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = ""
+
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 

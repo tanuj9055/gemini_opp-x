@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.logging_cfg import logger
-from app.routers import bid, vendor
+from app.routers import bid, orchestrator, vendor
 
 _log = logger.getChild("main")
 
@@ -48,7 +48,9 @@ app = FastAPI(
         "**Stage 1** — `/analyze-bid` extracts structured eligibility criteria "
         "from a bid PDF.  \n"
         "**Stage 2** — `/evaluate-vendor` cross-references vendor documents "
-        "against bid criteria to compute an eligibility score and recommendation."
+        "against bid criteria to compute an eligibility score and recommendation.  \n"
+        "**Pipeline** — `/process-bid-evaluation` orchestrates the full pipeline: "
+        "fetch bid from S3, extract criteria, fetch vendor docs, evaluate, and return results."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -68,6 +70,7 @@ app.add_middleware(
 # ── Routers ──────────────────────────────────────────────
 app.include_router(bid.router)
 app.include_router(vendor.router)
+app.include_router(orchestrator.router)
 
 
 # ── Health check ─────────────────────────────────────────

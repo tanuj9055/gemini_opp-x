@@ -134,6 +134,10 @@ class EligibilityCriterion(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     risk_level: Optional[Severity] = None
     risk_reasoning: Optional[str] = None
+    human_readable_requirement: Optional[str] = Field(
+        None,
+        description="Plain-English explanation of the requirement, suitable for frontend display",
+    )
     references: List[DocumentReference] = Field(default_factory=list)
 
 
@@ -318,3 +322,62 @@ class VendorEvaluationResponse(BaseModel):
 
     normalization_meta: Optional[NormalizationMeta] = None
     raw_ocr_text: Optional[str] = None
+
+
+# ────────────────────────────────────────────────────────
+# Orchestration — /process-bid-evaluation (v2.0)
+# ────────────────────────────────────────────────────────
+
+class VendorInput(BaseModel):
+    """A single vendor with document URLs, as received from Pub/Sub or backend."""
+    vendor_id: str = Field(..., description="Unique vendor identifier")
+    documents: List[str] = Field(
+        ...,
+        description="List of S3 URLs to vendor PDFs (e.g. s3://bucket/vendor_01/gst.pdf)",
+        min_length=1,
+    )
+
+
+class BidEvaluationRequest(BaseModel):
+    """POST /process-bid-evaluation request body."""
+    bid_id: str = Field(..., description="GeM Bid / Tender ID")
+    bid_document_url: str = Field(
+        ...,
+        description="S3 URL to the bid PDF (e.g. s3://bids/bid_6716709.pdf)",
+    )
+    vendors: List[VendorInput] = Field(
+        ...,
+        description="List of vendors to evaluate against the bid",
+        min_length=1,
+    )
+
+
+class VendorEvaluationSummary(BaseModel):
+    """Per-vendor result in the orchestration response."""
+    vendor_id: str
+    eligibility_score: float = Field(default=0.0, ge=0, le=100)
+    recommendation: Optional[str] = Field(
+        None, description="APPROVE / REJECT / REVIEW"
+    )
+    criterion_verdicts: List[EligibilityCriterion] = Field(default_factory=list)
+    vendor_profile: Optional[VendorProfile] = None
+    rejection_reasons: List[str] = Field(default_factory=list)
+    risks: List[RiskFlag] = Field(default_factory=list)
+    error: Optional[str] = Field(
+        None, description="Error message if this vendor's evaluation failed"
+    )
+
+
+class BidEvaluationResponse(BaseModel):
+    """POST /process-bid-evaluation response."""
+    bid_id: str
+    bid_analysis: Optional[BidAnalysisResponse] = None
+    vendor_evaluations: List[VendorEvaluationSummary] = Field(default_factory=list)
+    summary: str = Field(
+        default="",
+        description="Human-readable summary of the overall evaluation",
+    )
+    errors: List[str] = Field(
+        default_factory=list,
+        description="Top-level errors encountered during processing",
+    )
