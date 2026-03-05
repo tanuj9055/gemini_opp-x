@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = ""
     aws_region: str = ""
 
+    # ── RabbitMQ ──────────────────────────────────────
+    rabbitmq_url: str = "amqp://localhost"
+
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 
