@@ -32,14 +32,36 @@ async def _on_analysis_message(message: AbstractIncomingMessage) -> None:
     async with message.process():
         try:
             body = json.loads(message.body.decode())
-            company_id = body.get("companyId", "UNKNOWN")
-            # ── Prominently print the company ID in the console ──────────────
-            print(f"\n{'='*50}")
-            print(f"  🔬 ANALYSIS REQUEST RECEIVED")
-            print(f"  🏢 Company ID : {company_id}")
-            print(f"  🕐 Timestamp: {body.get('timestamp', 'N/A')}")
-            print(f"{'='*50}\n")
-            _log.info("[analysis_exchange] Analysis requested by companyId=%s", company_id)
+            msg_type = body.get("type", "unknown")
+
+            if msg_type == "tender_apply":
+                bid_number = body.get("bidNumber", "N/A")
+                bid_url = body.get("bidUrl", "N/A")
+                documents = body.get("companyDocuments", [])
+                bid_details = body.get("bidDetails", {})
+                print(f"\n{'='*50}")
+                print(f"  📋 TENDER APPLICATION RECEIVED")
+                print(f"  🔢 Bid Number : {bid_number}")
+                print(f"  🔗 Bid URL    : {bid_url}")
+                print(f"  📄 Documents  : {len(documents)} attached")
+                for doc in documents:
+                    print(f"     • {doc.get('documentType', 'N/A')} — {doc.get('fileUrl', 'N/A')}")
+                print(f"  🕐 Timestamp  : {body.get('timestamp', 'N/A')}")
+                print(f"{'='*50}\n")
+                _log.info(
+                    "[analysis_exchange] Tender apply — bid=%s, docs=%d",
+                    bid_number,
+                    len(documents),
+                )
+            else:
+                company_id = body.get("companyId", "UNKNOWN")
+                print(f"\n{'='*50}")
+                print(f"  🔬 ANALYSIS REQUEST RECEIVED")
+                print(f"  🏢 Company ID : {company_id}")
+                print(f"  🕐 Timestamp  : {body.get('timestamp', 'N/A')}")
+                print(f"{'='*50}\n")
+                _log.info("[analysis_exchange] companyId=%s", company_id)
+
         except json.JSONDecodeError:
             _log.warning("Non-JSON message on analysis_exchange: %s", message.body)
 
