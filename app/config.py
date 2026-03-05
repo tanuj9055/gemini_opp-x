@@ -42,6 +42,8 @@ class Settings(BaseSettings):
 
     # ── RabbitMQ ──────────────────────────────────────
     rabbitmq_url: str = "amqp://localhost"
+    rabbitmq_jobs_queue: str = "bid_evaluation_jobs"
+    rabbitmq_results_queue: str = "bid_evaluation_results"
 
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50

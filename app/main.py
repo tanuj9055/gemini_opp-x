@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.logging_cfg import logger
 from app.routers import bid, orchestrator, vendor
 from app.services.rabbitmq_consumer import start_consumer
+from app.worker.consumer import start_worker
 
 _log = logger.getChild("main")
 
@@ -35,19 +36,24 @@ async def lifespan(app: FastAPI):
         settings.gemini_model,
     )
 
-    # ── Start RabbitMQ consumer in the background ──────────────
+    # ── Start RabbitMQ consumers in the background ─────────────
     consumer_task = asyncio.create_task(
         start_consumer(settings.rabbitmq_url),
         name="rabbitmq-consumer",
     )
+    worker_task = asyncio.create_task(
+        start_worker(settings.rabbitmq_url),
+        name="rabbitmq-ai-worker",
+    )
 
     yield
 
-    consumer_task.cancel()
-    try:
-        await consumer_task
-    except asyncio.CancelledError:
-        pass
+    for task in (consumer_task, worker_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     _log.info("Shutting down GeM Audit Service")
 
