@@ -106,7 +106,316 @@ Government procurement officers must:
 
 ---
 
-## 4. The Orchestration Layer: `/process-bid-evaluation` Endpoint
+## 4. Complete System Flow: End-to-End Walkthrough
+
+This section explains **exactly what happens** when you send a `/process-bid-evaluation` request, from request arrival through final response.
+
+### Phase 1: Request Reception & Validation
+
+```
+USER/BACKEND SERVICE
+    │
+    ├─ POST /process-bid-evaluation
+    │  {
+    │    "bid_id": "GEM/2025/B/6716709",
+    │    "bid_document_url": "s3://bids/bid_6716709.pdf",
+    │    "vendors": [ {...}, {...} ]
+    │  }
+    │
+    ▼
+FastAPI Application
+    ├─ Pydantic validates JSON against BidEvaluationRequest schema
+    │  ✓ Checks: bid_id format, S3 URLs are well-formed, vendors array not empty
+    │  ✗ If validation fails: HTTP 422 Unprocessable Entity
+    │
+    ├─ Request reaches orchestrator.py:process_bid_evaluation()
+    │
+    └─ Initialize:
+       ├─ Create temporary directories (tmp_bid, tmp_vendor_1, tmp_vendor_2, ...)
+       └─ Set up error tracking list
+```
+
+### Phase 2: Bid Document Download & Analysis
+
+```
+S3 Storage
+    │ (bid_document_url = "s3://bids/bid_6716709.pdf")
+    │
+    ▼
+s3_client.py:download_file()
+    ├─ Parse S3 URL
+    │  ├─ Detect format: s3://, virtual-hosted HTTPS, or path-style
+    │  └─ Extract bucket="bids", key="bid_6716709.pdf"
+    │
+    ├─ boto3 S3 client
+    │  ├─ Check AWS credentials (env vars → ~/.aws/credentials → IAM role)
+    │  ├─ Validate bucket exists and user has read permission
+    │  ├─ Download to /tmp/bid_evaluation_xyz/bid_6716709.pdf
+    │  └─ On error: Return structured error; do NOT block pipeline
+    │
+    └─ Return filepath
+       │
+       ▼
+    gems_client.py:analyze_bid()
+       ├─ Read bid PDF bytes from disk
+       │
+       ├─ Upload to Gemini Files API
+       │  └─ Gemini processes OCR, image extraction, document structure
+       │
+       ├─ Call Gemini 1.5 Pro with:
+       │  ├─ File handle (bid PDF)
+       │  ├─ BID_ANALYSIS_PROMPT (280 lines of extraction instructions)
+       │  ├─ response_mime_type="application/json"
+       │  └─ temperature=0.2 (deterministic)
+       │
+       ├─ Response: JSON containing 8-15 eligibility criteria
+       │  [
+       │    {
+       │      "criterion": "Minimum Average Annual Turnover",
+       │      "required_value": {
+       │        "comparison_operator": ">=",
+       │        "numeric_value": 50000000,
+       │        "unit": "INR"
+       │      },
+       │      "references": [
+       │        {
+       │          "page": 3,
+       │          "section": "Financial Qualifications",
+       │          "bounding_box": {...}
+       │        }
+       │      ]
+       │    },
+       │    ...
+       │  ]
+       │
+       ├─ Post-process: _normalize_gemini_output()
+       │  ├─ Stub missing keys (e.g., if "confidence" is missing, set to 0.5)
+       │  ├─ Validate field types
+       │  └─ Fix common model quirks
+       │
+       └─ Inject human_readable_requirement field
+          └─ generate_human_readable(criterion) converts:
+             "₹50M + '>=' " → "₹5 crore" (Indian number formatting)
+             Full output: "The bidder must have an average annual turnover..."
+```
+
+### Phase 3: Concurrent Vendor Processing
+
+```
+For VENDOR_01, VENDOR_02, ..., VENDOR_N (in parallel via asyncio.gather):
+
+VENDOR_DOCUMENT DOWNLOAD
+    │
+    ├─ documents = [
+    │    "s3://vendors/vendor_01/gst.pdf",
+    │    "s3://vendors/vendor_01/pan.pdf",
+    │    "s3://vendors/vendor_01/balance_sheet.pdf",
+    │    "s3://vendors/vendor_01/work_orders.pdf"
+    │  ]
+    │
+    ├─ s3_client.py:download_files()
+    │  ├─ For each S3 URL:
+    │  │  ├─ Parse S3 URL
+    │  │  ├─ Download concurrently using asyncio.gather()
+    │  │  └─ Add index prefix to filenames (1_gst.pdf, 2_pan.pdf, ...)
+    │  │     → Prevents collisions if files have same name
+    │  │
+    │  └─ Return list of local paths:
+    │     [
+    │       "/tmp/vendor_01/1_gst.pdf",
+    │       "/tmp/vendor_01/2_pan.pdf",
+    │       "/tmp/vendor_01/3_balance_sheet.pdf",
+    │       "/tmp/vendor_01/4_work_orders.pdf"
+    │     ]
+    │
+    ▼
+VENDOR EVALUATION (Stage 2)
+    │
+    ├─ gemini_client.py:evaluate_vendor()
+    │  ├─ Read all vendor PDF bytes from disk
+    │  │
+    │  ├─ Upload to Gemini Files API (4 file handles)
+    │  │
+    │  ├─ Build VENDOR_EVALUATION_PROMPT
+    │  │  ├─ Inject entire bid JSON (from Phase 2) as context
+    │  │  │  "Here are the 12 criteria extracted from the bid:"
+    │  │  │  [criterion 1, criterion 2, ...]
+    │  │  │
+    │  │  ├─ Pass vendor file handles
+    │  │  │  "Cross-reference the following vendor documents:"
+    │  │  │  [GST.pdf, PAN.pdf, Balance Sheet, Work Orders]
+    │  │  │
+    │  │  └─ Instructions:
+    │  │     ├─ "For each criterion in the bid, determine: MET / NOT_MET / PARTIAL"
+    │  │     ├─ "Score: 0-100 overall eligibility"
+    │  │     ├─ "Extract vendor profile (name, GST, PAN, registration date)"
+    │  │     ├─ "Identify risks: financial, regulatory, document-related"
+    │  │     └─ "Recommend: APPROVE / REJECT / REVIEW"
+    │  │
+    │  ├─ Call Gemini 1.5 Pro
+    │  │  ├─ Input: 4 file handles + detailed multimodal prompt
+    │  │  ├─ Output: JSON with evaluations
+    │  │  └─ Timeout: 120 seconds max; exponential backoff on 429/503
+    │  │
+    │  └─ Response JSON:
+    │     {
+    │       "vendor_id": "VENDOR_01",
+    │       "eligibility_score": 92.5,
+    │       "recommendation": "APPROVE",
+    │       "vendor_profile": {
+    │         "name": "Premium Supplies Ltd.",
+    │         "gst": "07ABCD1234F1Z5",
+    │         "pan": "ABCD1234F",
+    │         "registration_date": "2018-05-20"
+    │       },
+    │       "criterion_verdicts": [
+    │         {
+    │           "criterion": "Minimum Average Annual Turnover",
+    │           "vendor_compliance_status": "MET",
+    │           "extracted_value": "₹6.2 crore (FY2023-24)",
+    │           "reasoning": "Balance sheet shows consecutive 3-year average of ₹6.2 crore..."
+    │         },
+    │         {
+    │           "criterion": "Experience (>5 years)",
+    │           "vendor_compliance_status": "MET",
+    │           "extracted_value": "Established 2018 (6 years)",
+    │           "reasoning": "Company registration shows 2018 start date; 4 work orders..."
+    │         },
+    │         ...
+    │       ],
+    │       "risk_assessment": [
+    │         {
+    │           "category": "SYSTEMIC_GEM_RISK",
+    │           "severity": "LOW",
+    │           "details": "Standard financial criterion; vendor docs current."
+    │         }
+    │       ]
+    │     }
+    │
+    ├─ Post-process: _normalize_gemini_output()
+    │  ├─ Stub missing fields
+    │  └─ Validate types
+    │
+    └─ Inject human_readable_requirement field
+       └─ Same algorithm as Phase 2
+          "The bidder must have an average annual turnover of at least ₹5 crore..."
+```
+
+### Phase 4: Aggregation & Cleanup
+
+```
+COLLECT ALL VENDOR RESULTS
+    │
+    ├─ Await all vendor evaluation tasks
+    │  └─ asyncio.gather() collects all 5-100 vendors without blocking
+    │
+    ├─ Build aggregated response
+    │  {
+    │    "bid_id": "GEM/2025/B/6716709",
+    │    "bid_analysis": {...},           ← from Phase 2
+    │    "vendor_evaluations": [          ← from Phase 3 (all vendors)
+    │      { "vendor_id": "VENDOR_01", ... },
+    │      { "vendor_id": "VENDOR_02", ... },
+    │      ...
+    │    ],
+    │    "summary": "2 vendors APPROVED (92.5, 88.0), 1 REJECTED (35.0)",
+    │    "errors": [...]                   ← if any vendor failed
+    │  }
+    │
+    └─ HTTP 200 OK
+       │
+       ▼
+CLEANUP (happens even if error occurred)
+    │
+    ├─ Delete temporary directories
+    │  ├─ /tmp/bid_evaluation_xyz/
+    │  ├─ /tmp/vendor_01/
+    │  ├─ /tmp/vendor_02/
+    │  └─ ...all vendor temp dirs...
+    │
+    └─ Return to user
+```
+
+### Phase 5: Error Handling Across All Phases
+
+```
+If error occurs at ANY phase:
+
+┌────────────────────────────────────────┐
+│ S3 Download Error (Phase 2)            │
+├────────────────────────────────────────┤
+│ • NoCredentialsError                   │
+│   → HTTP 401, tell user to set AWS_*   │
+│ • FileNotFoundError                    │
+│   → HTTP 404, check S3 bucket/key      │
+│ • TimeoutError                         │
+│   → HTTP 504, retry with longer URL    │
+└────────────────────────────────────────┘
+
+┌────────────────────────────────────────┐
+│ Gemini API Error (Bid Analysis/Vendor) │
+├────────────────────────────────────────┤
+│ • 429 (rate limit)                     │
+│   → Exponential backoff, retry 3x      │
+│ • 503 (server busy)                    │
+│   → Exponential backoff, retry 2x      │
+│ • 500 (server error)                   │
+│   → Log error, do NOT retry            │
+│ • QuotaExhaustedError (hard quota)     │
+│   → HTTP 429, ask user to increase GCP │
+│     quota; do NOT retry                │
+└────────────────────────────────────────┘
+
+┌────────────────────────────────────────┐
+│ Per-Vendor Error (Phase 3)             │
+├────────────────────────────────────────┤
+│ • Vendor 1: OK (complete evaluation)   │
+│ • Vendor 2: FAILS (S3 or API error)    │
+│ • Vendor 3: OK (continues normally)    │
+│                                        │
+│ → Response includes vendor 1 & 3       │
+│ → Response includes error for vendor 2 │
+│ → HTTP 200 (partial success)           │
+│ → Operator manually reviews vendor 2   │
+└────────────────────────────────────────┘
+
+Overall response (even with errors):
+{
+  "bid_id": "...",
+  "bid_analysis": {...},
+  "vendor_evaluations": [
+    { "vendor_id": "VENDOR_01", ... },  ✓ success
+    { "vendor_id": "VENDOR_03", ... }   ✓ success
+  ],
+  "errors": [
+    {
+      "vendor_id": "VENDOR_02",
+      "error_type": "S3_DOWNLOAD_FAILED",
+      "reason": "AWS credentials not configured",
+      "timestamp": "2025-03-05T14:32:10Z"
+    }
+  ]
+}
+```
+
+### Real-World Timing Example
+
+**Request**: Evaluate 1 bid + 5 vendors with 3 docs each
+
+| Phase | Operation | Time |
+|-------|-----------|------|
+| 2a | Download bid PDF (2MB) | 0.5s |
+| 2b | Gemini bid analysis (vision + extraction) | 15s |
+| 3a | Download 15 vendor PDFs concurrently | 2s |
+| 3b | Gemini vendor evaluation (5 vendors parallel) | 60s |
+| 4 | Aggregation + cleanup | 0.5s |
+| **Total** | **End-to-end latency** | **~78 seconds** |
+
+→ **Compared to manual**: 4-6 **hours** per bid → ~**1.3 minutes** with AI
+
+---
+
+## 5. The Orchestration Layer: `/process-bid-evaluation` Endpoint
 
 **NEW** (Version 2.0): Unified **end-to-end pipeline** that orchestrates the entire procurement audit via a **single HTTP POST request**. Perfect for Pub/Sub triggers and backend integrations.
 
@@ -189,7 +498,7 @@ POST /process-bid-evaluation
 
 ---
 
-## 5. S3 Integration: Cloud-Native Document Storage
+## 6. S3 Integration: Cloud-Native Document Storage
 
 ### Overview
 Documents are stored in **Amazon S3** instead of being uploaded via HTTP. The service downloads them on-demand for processing.
@@ -249,7 +558,7 @@ vendor_doc_paths = await download_files(vendor_input.documents, vendor_tmp_dir)
 
 ---
 
-## 6. The Human-Readable Requirement Field
+## 7. The Human-Readable Requirement Field
 
 ### Definition
 A new field on every `EligibilityCriterion` object: **`human_readable_requirement`**
@@ -327,7 +636,7 @@ Plain-English explanation of what the bid requires, suitable for direct display 
 
 ---
 
-## 4.5. The Two-Stage Pipeline (Original)
+## 8. The Two-Stage Pipeline (Original)
 
 ### Stage 1: Bid Analysis (`/analyze-bid`)
 
@@ -428,7 +737,7 @@ However, `/analyze-bid` remains available for direct HTTP multipart uploads.
 
 ---
 
-## 7. Data Models & Schema Design
+## 9. Data Models & Schema Design
 
 ### Core Enums (Taxonomy)
 
@@ -520,7 +829,7 @@ Severity
 
 ---
 
-## 8. AI/ML Strategy
+## 10. AI/ML Strategy
 
 ### Why Gemini 1.5 Pro?
 
@@ -561,7 +870,7 @@ Severity
 
 ---
 
-## 9. Key Design Decisions & Innovations
+## 11. Key Design Decisions & Innovations
 
 ### 1. **Async-First Architecture**
 - File uploads, API calls, and file deletions run in `asyncio.gather()`
@@ -608,7 +917,7 @@ Severity
 
 ---
 
-## 10. End-to-End Workflow Example
+## 12. End-to-End Workflow Example
 
 ### Scenario: GeM Bid TED/2024/001234
 
@@ -709,7 +1018,7 @@ Gemini cross-references & returns:
 
 ---
 
-## 11. Risk Management & Safeguards
+## 13. Risk Management & Safeguards
 
 ### Operational Risks
 
@@ -736,7 +1045,7 @@ Gemini cross-references & returns:
 
 ---
 
-## 12. Extension Points & Future Roadmap
+## 14. Extension Points & Future Roadmap
 
 ### Near-Term (Months 1-3)
 - [ ] **Dashboard UI**: Visualization of bid criteria, vendor scores, side-by-side comparison
@@ -758,7 +1067,7 @@ Gemini cross-references & returns:
 
 ---
 
-## 13. Comparison to Alternatives
+## 15. Comparison to Alternatives
 
 | Approach | Pros | Cons | This Project |
 |----------|------|------|--------------|
@@ -770,7 +1079,7 @@ Gemini cross-references & returns:
 
 ---
 
-## 14. Conclusion
+## 16. Conclusion
 
 **GeM Procurement Audit Service** is a **production-ready, domain-specific AI application** that bridges the gap between unstructured procurement documents and structured, verifiable compliance decisions.
 
