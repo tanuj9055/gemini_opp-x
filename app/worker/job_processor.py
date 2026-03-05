@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 
 from app.logging_cfg import logger
 from app.services.s3_client import download_file, download_files
+from app.services.human_readable import inject_human_readable_vendor
 
 # Reuse the existing orchestrator helpers (Gemini pipeline, normalization, etc.)
 from app.routers.orchestrator import (
@@ -108,12 +109,19 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 # Extract criterion verdicts with human-readable labels
                 criterion_verdicts = _extract_criterion_verdicts(vendor_eval)
 
+                # Serialize the FULL vendor evaluation response
+                vendor_eval_dict = vendor_eval.model_dump(mode="json")
+
+                # Inject human-readable into the full vendor data as well
+                inject_human_readable_vendor(vendor_eval_dict)
+
                 vendor_results.append({
                     "vendor_id": vendor_id,
                     "eligibility_score": vendor_eval.eligibility_score,
                     "recommendation": vendor_eval.overall_recommendation,
                     "criterion_verdicts": criterion_verdicts,
                     "rejection_reasons": vendor_eval.rejection_reasons or [],
+                    "full_evaluation": vendor_eval_dict,
                 })
 
                 _log.info(
@@ -134,10 +142,15 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
         # ── Step 4: Build result message ─────────────────────────────
         elapsed = time.perf_counter() - t0
+
+        # Serialize the FULL bid analysis response (endpoint 1 data)
+        bid_analysis_dict = bid_analysis.model_dump(mode="json")
+
         result = {
             "job_id": job_id,
             "bid_id": bid_id,
             "status": "completed",
+            "bid_analysis": bid_analysis_dict,
             "vendor_results": vendor_results,
             "errors": errors,
             "processing_time_seconds": round(elapsed, 2),

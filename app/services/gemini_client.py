@@ -24,7 +24,8 @@ from app.logging_cfg import logger
 _log = logger.getChild("gemini_client")
 
 # Default timeout for Gemini API calls (seconds)
-_GENERATION_TIMEOUT = 120
+# gemini-2.5-flash uses "thinking" which may need extra time for complex PDFs
+_GENERATION_TIMEOUT = 300
 
 
 class QuotaExhaustedError(Exception):

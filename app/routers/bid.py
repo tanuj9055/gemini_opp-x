@@ -23,6 +23,7 @@ from app.services.gemini_client import (
     parse_json_response,
     upload_file,
 )
+from app.services.human_readable import inject_human_readable_bid
 from app.services.prompts import BID_ANALYSIS_PROMPT
 
 _log = logger.getChild("bid_router")
@@ -87,6 +88,9 @@ async def analyze_bid(
 
         # ── Normalize model output before validation ─
         data = _normalize_gemini_output(data)
+
+        # ── Inject human-readable requirements ───────
+        inject_human_readable_bid(data.get("eligibility_criteria", []))
 
         # ── Inject normalization meta ────────────────
         data["normalization_meta"] = {

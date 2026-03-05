@@ -34,6 +34,7 @@ from app.services.gemini_client import (
     parse_json_response,
     upload_files,
 )
+from app.services.human_readable import inject_human_readable_vendor
 from app.services.prompts import VENDOR_EVALUATION_PROMPT
 
 _log = logger.getChild("vendor_router")
@@ -138,6 +139,9 @@ async def evaluate_vendor(
         # ── Normalize model output before validation ─
         data = _normalize_vendor_output(data)
 
+        # ── Inject human-readable requirement (vendor perspective) ──
+        inject_human_readable_vendor(data)
+
         # ── Inject normalization meta ────────────────
         data["normalization_meta"] = {
             "prompt_tokens": usage.get("prompt_tokens"),
@@ -226,6 +230,10 @@ def _normalize_vendor_output(data: dict) -> dict:
     # ── Normalise criterion-wise findings ──────────────
     for key in ("financial_turnover", "experience", "similar_services", "location_verification"):
         item = data.get(key)
+        if isinstance(item, list):
+            # Gemini sometimes returns [] instead of a dict – coerce to None
+            data[key] = None
+            continue
         if not isinstance(item, dict):
             continue
         _normalise_criterion(item, default_compliance="PARTIAL")

@@ -40,6 +40,12 @@ from app.services.gemini_client import (
     upload_file,
     upload_files,
 )
+from app.services.human_readable import (
+    generate_human_readable_requirement,
+    generate_vendor_human_readable,
+    inject_human_readable_bid,
+    inject_human_readable_vendor,
+)
 from app.services.prompts import BID_ANALYSIS_PROMPT, VENDOR_EVALUATION_PROMPT
 from app.services.s3_client import download_file, download_files
 
@@ -47,138 +53,9 @@ _log = logger.getChild("orchestrator")
 router = APIRouter(tags=["Orchestration"])
 
 
-# ────────────────────────────────────────────────────────
-# Human-readable requirement generator
-# ────────────────────────────────────────────────────────
-
-_UNIT_SYMBOLS = {
-    "INR": "₹",
-    "USD": "$",
-    "EUR": "€",
-    "GBP": "£",
-}
-
-_UNIT_LABELS = {
-    "INR": "INR",
-    "years": "years",
-    "percentage": "%",
-    "count": "",
-    "boolean": "",
-    "enum": "",
-}
-
-_OPERATOR_PHRASES = {
-    ">=": "at least",
-    ">":  "more than",
-    "<=": "at most",
-    "<":  "less than",
-    "==": "exactly",
-    "IN": "one of",
-    "BOOLEAN": "",
-    "BETWEEN": "between",
-}
-
-
-def _format_number(value: float, unit: Optional[str] = None) -> str:
-    """Format a number with Indian convention for INR, or standard otherwise."""
-    if unit and unit.upper() == "INR":
-        # Indian numbering: 1,00,000 for lakhs, 1,00,00,000 for crores
-        if value >= 1_00_00_000:
-            crores = value / 1_00_00_000
-            if crores == int(crores):
-                return f"₹{int(crores)} crore"
-            return f"₹{crores:,.2f} crore"
-        if value >= 1_00_000:
-            lakhs = value / 1_00_000
-            if lakhs == int(lakhs):
-                return f"₹{int(lakhs)} lakh"
-            return f"₹{lakhs:,.2f} lakh"
-        # For smaller amounts, use comma-separated
-        if value == int(value):
-            return f"₹{int(value):,}"
-        return f"₹{value:,.2f}"
-
-    # Generic formatting
-    if value == int(value):
-        return str(int(value))
-    return f"{value:,.2f}"
-
-
-def generate_human_readable(criterion: Dict[str, Any]) -> str:
-    """Generate a plain-English requirement sentence from criterion fields.
-
-    Uses: criterion (name), required_value.comparison_operator,
-    required_value.numeric_value, required_value.unit, required_value.text_value,
-    and required_value_raw as fallback.
-    """
-    name = criterion.get("criterion", "This requirement")
-    rv = criterion.get("required_value")
-
-    # If no structured required_value, fall back to raw text
-    if not rv or not isinstance(rv, dict):
-        raw = criterion.get("required_value_raw")
-        if raw:
-            return f"{name}: {raw}"
-        detail = criterion.get("detail", "")
-        if detail:
-            return f"{name}: {detail}"
-        return f"{name}."
-
-    operator = rv.get("comparison_operator")
-    numeric = rv.get("numeric_value")
-    unit = rv.get("unit")
-    text_val = rv.get("text_value")
-    raw_text = rv.get("raw_text")
-
-    # BOOLEAN type
-    if operator == "BOOLEAN":
-        if text_val:
-            return f"The bidder must {text_val.lower().rstrip('.')}."
-        return f"The bidder must satisfy the {name.lower()} requirement."
-
-    # IN type (set membership)
-    if operator == "IN":
-        if text_val:
-            return f"The bidder must be located in or operate from: {text_val}."
-        return f"The bidder must meet the {name.lower()} requirement."
-
-    # BETWEEN type
-    if operator == "BETWEEN":
-        if text_val:
-            return f"The bidder must have {name.lower()} {text_val}."
-        return f"The bidder must meet the {name.lower()} requirement."
-
-    # Numeric comparisons (>=, <=, ==, >, <)
-    if operator and numeric is not None:
-        phrase = _OPERATOR_PHRASES.get(operator, operator)
-        formatted_value = _format_number(numeric, unit)
-
-        # Build unit suffix
-        unit_suffix = ""
-        if unit and unit.upper() not in ("INR", "USD", "EUR", "GBP", "BOOLEAN", "ENUM"):
-            unit_suffix = f" {unit}"
-
-        return (
-            f"The bidder must have {name.lower()} of {phrase} "
-            f"{formatted_value}{unit_suffix}."
-        )
-
-    # Fallback: use raw_text or required_value_raw
-    if raw_text:
-        return f"{name}: {raw_text}"
-    raw_fallback = criterion.get("required_value_raw")
-    if raw_fallback:
-        return f"{name}: {raw_fallback}"
-
-    return f"{name}."
-
-
-def inject_human_readable(criteria: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Add ``human_readable_requirement`` to each criterion dict in-place."""
-    for item in criteria:
-        if isinstance(item, dict) and not item.get("human_readable_requirement"):
-            item["human_readable_requirement"] = generate_human_readable(item)
-    return criteria
+# Re-export for backward compatibility (worker imports these)
+generate_human_readable = generate_human_readable_requirement
+inject_human_readable = inject_human_readable_bid
 
 
 # ────────────────────────────────────────────────────────
@@ -273,14 +150,13 @@ async def _run_vendor_evaluation(
 
 def _extract_criterion_verdicts(vendor_eval: VendorEvaluationResponse) -> List[Dict[str, Any]]:
     """Extract the criterion-wise verdicts from VendorEvaluationResponse
-    and inject human_readable_requirement."""
+    and inject human_readable_requirement (vendor perspective)."""
     verdicts = []
     for field in ("financial_turnover", "experience", "similar_services", "location_verification"):
         criterion = getattr(vendor_eval, field, None)
         if criterion is not None:
             d = criterion.model_dump(mode="json")
-            if not d.get("human_readable_requirement"):
-                d["human_readable_requirement"] = generate_human_readable(d)
+            d["human_readable_requirement"] = generate_vendor_human_readable(d)
             verdicts.append(d)
     return verdicts
 
