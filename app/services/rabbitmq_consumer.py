@@ -1,0 +1,85 @@
+"""
+RabbitMQ subscriber – listens on the ``hello_exchange`` (fanout) and
+``analysis_exchange`` (fanout) exchanges and logs every received message.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+
+import aio_pika
+from aio_pika.abc import AbstractIncomingMessage
+
+from app.logging_cfg import logger
+
+_log = logger.getChild("rabbitmq_consumer")
+
+HELLO_EXCHANGE = "hello_exchange"
+ANALYSIS_EXCHANGE = "analysis_exchange"
+
+
+async def _on_hello_message(message: AbstractIncomingMessage) -> None:
+    async with message.process():
+        try:
+            body = json.loads(message.body.decode())
+            _log.info("📨 [hello_exchange] Received: %s", body)
+        except json.JSONDecodeError:
+            _log.warning("Non-JSON message on hello_exchange: %s", message.body)
+
+
+async def _on_analysis_message(message: AbstractIncomingMessage) -> None:
+    async with message.process():
+        try:
+            body = json.loads(message.body.decode())
+            user_id = body.get("userId", "UNKNOWN")
+            # ── Prominently print the user ID in the console ──────────────
+            print(f"\n{'='*50}")
+            print(f"  🔬 ANALYSIS REQUEST RECEIVED")
+            print(f"  👤 User ID : {user_id}")
+            print(f"  🕐 Timestamp: {body.get('timestamp', 'N/A')}")
+            print(f"{'='*50}\n")
+            _log.info("[analysis_exchange] Analysis requested by userId=%s", user_id)
+        except json.JSONDecodeError:
+            _log.warning("Non-JSON message on analysis_exchange: %s", message.body)
+
+
+async def start_consumer(rabbitmq_url: str) -> None:
+    """
+    Connects to RabbitMQ via a robust (auto-reconnecting) connection,
+    declares both exchanges, binds exclusive queues, and starts consuming.
+    """
+    _log.info("Connecting RabbitMQ consumer to %s …", rabbitmq_url)
+    connection = await aio_pika.connect_robust(rabbitmq_url)
+
+    async with connection:
+        channel = await connection.channel()
+        await channel.set_qos(prefetch_count=10)
+
+        # ── hello_exchange ────────────────────────────────────────────────
+        hello_ex = await channel.declare_exchange(
+            HELLO_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+        )
+        hello_queue = await channel.declare_queue("", exclusive=True, auto_delete=True)
+        await hello_queue.bind(hello_ex)
+        await hello_queue.consume(_on_hello_message)
+
+        # ── analysis_exchange ─────────────────────────────────────────────
+        analysis_ex = await channel.declare_exchange(
+            ANALYSIS_EXCHANGE, aio_pika.ExchangeType.FANOUT, durable=True
+        )
+        analysis_queue = await channel.declare_queue(
+            "", exclusive=True, auto_delete=True
+        )
+        await analysis_queue.bind(analysis_ex)
+        await analysis_queue.consume(_on_analysis_message)
+
+        _log.info(
+            "RabbitMQ consumer ready – listening on '%s' and '%s'",
+            HELLO_EXCHANGE,
+            ANALYSIS_EXCHANGE,
+        )
+
+        # Keep alive until lifespan cancels this task
+        await asyncio.Future()
+

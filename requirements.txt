@@ -6,3 +6,4 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 google-genai==1.1.0
 aiofiles==24.1.0
+aio-pika==9.4.3

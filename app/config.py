@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "DEBUG"
 
+    # ── RabbitMQ ──────────────────────────────────────
+    rabbitmq_url: str = "amqp://localhost"
+
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 
