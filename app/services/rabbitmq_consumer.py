@@ -32,14 +32,14 @@ async def _on_analysis_message(message: AbstractIncomingMessage) -> None:
     async with message.process():
         try:
             body = json.loads(message.body.decode())
-            user_id = body.get("userId", "UNKNOWN")
-            # ── Prominently print the user ID in the console ──────────────
+            company_id = body.get("companyId", "UNKNOWN")
+            # ── Prominently print the company ID in the console ──────────────
             print(f"\n{'='*50}")
             print(f"  🔬 ANALYSIS REQUEST RECEIVED")
-            print(f"  👤 User ID : {user_id}")
+            print(f"  🏢 Company ID : {company_id}")
             print(f"  🕐 Timestamp: {body.get('timestamp', 'N/A')}")
             print(f"{'='*50}\n")
-            _log.info("[analysis_exchange] Analysis requested by userId=%s", user_id)
+            _log.info("[analysis_exchange] Analysis requested by companyId=%s", company_id)
         except json.JSONDecodeError:
             _log.warning("Non-JSON message on analysis_exchange: %s", message.body)
 
