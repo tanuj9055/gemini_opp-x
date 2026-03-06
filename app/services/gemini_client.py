@@ -56,6 +56,13 @@ def _get_client() -> genai.Client:
 # File upload helpers
 # ────────────────────────────────────────────────────────
 
+def _guess_mime_type(file_path: Path) -> str:
+    """Return a MIME type for *file_path* based on its extension."""
+    import mimetypes
+    mime, _ = mimetypes.guess_type(str(file_path))
+    return mime or "application/pdf"  # default to PDF for procurement docs
+
+
 async def upload_file(file_path: Path, display_name: str | None = None) -> Any:
     """Upload a single file to the Gemini Files API and return the file handle.
 
@@ -63,14 +70,15 @@ async def upload_file(file_path: Path, display_name: str | None = None) -> Any:
     """
     client = _get_client()
     name = display_name or file_path.name
+    mime_type = _guess_mime_type(file_path)
 
-    _log.info("Uploading file → Gemini Files API: %s", name)
+    _log.info("Uploading file → Gemini Files API: %s (mime=%s)", name, mime_type)
     t0 = time.perf_counter()
 
     uploaded = await asyncio.to_thread(
         client.files.upload,
         file=file_path,
-        config=genai_types.UploadFileConfig(display_name=name),
+        config=genai_types.UploadFileConfig(display_name=name, mime_type=mime_type),
     )
 
     elapsed = time.perf_counter() - t0

@@ -114,31 +114,58 @@ async def _on_analysis_message(
                 )
 
                 # ── Validate required fields ─────────────────────
-                if not bid_url:
-                    raise ValueError("Missing 'bidUrl' in tender_apply message")
                 if not company_docs:
                     raise ValueError("Missing or empty 'companyDocuments' in tender_apply message")
 
-                # ── Map NestJS fields → internal job format ──────
-                # companyDocuments is an array of {documentType, fileUrl}
-                # for a single applicant company.  We treat them as one
-                # "vendor" whose documents are all the fileUrl values.
-                vendor_doc_urls = [
-                    doc["fileUrl"]
-                    for doc in company_docs
-                    if doc.get("fileUrl")
-                ]
+                # ── Separate bid PDF from vendor documents ───────
+                # The bidUrl from NestJS points to the GeM portal page
+                # (not a direct download).  The actual bid PDF is
+                # usually included in companyDocuments with a filename
+                # like "GeM-Bidding-*.pdf".  We identify it here.
+                bid_doc_url = None
+                vendor_doc_urls: list[str] = []
+
+                for doc in company_docs:
+                    url = doc.get("fileUrl", "")
+                    if not url:
+                        continue
+                    # Heuristic: filename contains "GeM-Bidding" or "gem-bidding"
+                    lower_url = url.lower()
+                    if "gem-bidding" in lower_url or "gem_bidding" in lower_url:
+                        bid_doc_url = url
+                    else:
+                        vendor_doc_urls.append(url)
+
+                # Fallback: if no doc matched the bid pattern, use the
+                # first document as the bid PDF.
+                if not bid_doc_url:
+                    all_urls = [d["fileUrl"] for d in company_docs if d.get("fileUrl")]
+                    if all_urls:
+                        bid_doc_url = all_urls[0]
+                        vendor_doc_urls = all_urls[1:]
+
+                if not bid_doc_url:
+                    raise ValueError(
+                        "Could not determine the bid document URL. "
+                        "Provide a direct S3 URL in companyDocuments or bidUrl."
+                    )
+
+                _log.info(
+                    "[%s] Bid PDF resolved from companyDocuments: %s",
+                    bid_number, bid_doc_url,
+                )
 
                 job = {
                     "job_id": f"tender_{bid_number}_{int(time.time())}",
                     "bid_id": bid_number,
-                    "bid_document_url": bid_url,
+                    "bid_document_url": bid_doc_url,
+                    "bid_portal_url": bid_url,        # keep portal link as metadata
                     "vendors": [
                         {
                             "vendor_id": "applicant",
                             "documents": vendor_doc_urls,
                         }
-                    ],
+                    ] if vendor_doc_urls else [],
                 }
 
             else:

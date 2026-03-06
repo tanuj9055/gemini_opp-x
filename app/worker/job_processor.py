@@ -54,13 +54,16 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
     vendors = job.get("vendors", [])
 
     _log.info(
-        "⚙️  Job %s started – bid_id=%s  vendors=%d",
+        "⚙️  Job %s started – bbid_id=%s  vendors=%d",
         job_id, bid_id, len(vendors),
     )
     t0 = time.perf_counter()
 
+    # Sanitise job_id for use in filesystem paths (bid numbers contain '/')
+    safe_job_id = job_id.replace("/", "_").replace("\\", "_")
+
     # Top-level temp directory for the entire job
-    tmp_root = Path(tempfile.mkdtemp(prefix=f"gem_job_{job_id}_"))
+    tmp_root = Path(tempfile.mkdtemp(prefix=f"gem_job_{safe_job_id}_"))
     errors: List[str] = []
     vendor_results: List[Dict[str, Any]] = []
 
