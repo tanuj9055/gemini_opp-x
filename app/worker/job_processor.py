@@ -118,10 +118,15 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 # Inject human-readable into the full vendor data as well
                 inject_human_readable_vendor(vendor_eval_dict)
 
+                # Override recommendation based on score threshold
+                score = vendor_eval.eligibility_score
+                recommendation = "APPROVED" if score >= 60 else "REJECT"
+                vendor_eval_dict["overall_recommendation"] = recommendation
+
                 vendor_results.append({
                     "vendor_id": vendor_id,
-                    "eligibility_score": vendor_eval.eligibility_score,
-                    "recommendation": vendor_eval.overall_recommendation,
+                    "eligibility_score": score,
+                    "recommendation": recommendation,
                     "criterion_verdicts": criterion_verdicts,
                     "rejection_reasons": vendor_eval.rejection_reasons or [],
                     "full_evaluation": vendor_eval_dict,
@@ -130,8 +135,8 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 _log.info(
                     "[%s] Vendor %s – score=%.0f  recommendation=%s",
                     job_id, vendor_id,
-                    vendor_eval.eligibility_score,
-                    vendor_eval.overall_recommendation,
+                    score,
+                    recommendation,
                 )
 
             except Exception as exc:
