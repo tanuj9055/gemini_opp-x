@@ -115,7 +115,7 @@ async def generate(
     prompt: str,
     file_handles: List[Any] | None = None,
     temperature: float = 0.2,
-    max_output_tokens: int = 32_768,
+    max_output_tokens: int = 65_536,
     max_retries: int = 3,
     timeout: int = _GENERATION_TIMEOUT,
 ) -> Tuple[str, Dict[str, Any]]:
@@ -262,10 +262,70 @@ async def generate(
             raise
 
 
+def _repair_truncated_json(text: str) -> str | None:
+    """Try to repair JSON that was truncated mid-stream.
+
+    Closes any open strings, arrays, and objects so that
+    ``json.loads`` can parse the incomplete output.
+    Returns the repaired string, or *None* if repair fails.
+    """
+    # Trim trailing comma / whitespace
+    repaired = text.rstrip()
+    if not repaired:
+        return None
+
+    # If we're inside an unterminated string, close it
+    # Count unescaped quotes to check parity
+    in_string = False
+    i = 0
+    while i < len(repaired):
+        ch = repaired[i]
+        if ch == '\\' and in_string:
+            i += 2
+            continue
+        if ch == '"':
+            in_string = not in_string
+        i += 1
+    if in_string:
+        repaired += '"'
+
+    # Remove any trailing comma
+    repaired = repaired.rstrip()
+    if repaired.endswith(','):
+        repaired = repaired[:-1]
+
+    # Count open brackets / braces and close them
+    opens = []
+    in_str = False
+    j = 0
+    while j < len(repaired):
+        ch = repaired[j]
+        if ch == '\\' and in_str:
+            j += 2
+            continue
+        if ch == '"':
+            in_str = not in_str
+        elif not in_str:
+            if ch in ('{', '['):
+                opens.append(ch)
+            elif ch == '}' and opens and opens[-1] == '{':
+                opens.pop()
+            elif ch == ']' and opens and opens[-1] == '[':
+                opens.pop()
+        j += 1
+
+    # Close remaining open brackets in reverse order
+    for bracket in reversed(opens):
+        repaired += ']' if bracket == '[' else '}'
+
+    return repaired
+
+
 def parse_json_response(raw: str) -> Dict[str, Any]:
     """Attempt to parse the model output as JSON.
 
     Handles common Gemini quirks such as markdown fences.
+    Falls back to truncated-JSON repair when the output was cut short.
     """
     text = raw.strip()
     # Strip markdown code block wrappers if present
@@ -278,5 +338,24 @@ def parse_json_response(raw: str) -> Dict[str, Any]:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        _log.error("JSON parse failure: %s\nRaw output (first 500 chars):\n%s", exc, text[:500])
+        _log.warning("JSON parse failure: %s  — attempting json_repair", exc)
+        try:
+            from json_repair import repair_json
+            repaired_str = repair_json(text, return_objects=False)
+            result = json.loads(repaired_str)
+            _log.info("json_repair succeeded – parsed %d top-level keys", len(result) if isinstance(result, dict) else 0)
+            return result
+        except Exception as repair_exc:
+            _log.warning("json_repair also failed: %s — trying manual truncation repair", repair_exc)
+
+        # Last resort: manual truncation repair
+        repaired = _repair_truncated_json(text)
+        if repaired:
+            try:
+                result = json.loads(repaired)
+                _log.info("Truncated-JSON repair succeeded (added %d chars)", len(repaired) - len(text))
+                return result
+            except json.JSONDecodeError:
+                pass
+        _log.error("JSON parse failure (unrecoverable): %s\nRaw output (first 500 chars):\n%s", exc, text[:500])
         return {"_parse_error": str(exc), "_raw_text": text}
