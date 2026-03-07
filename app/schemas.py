@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ────────────────────────────────────────────────────────
@@ -104,6 +104,13 @@ class StructuredRequirement(BaseModel):
         None,
         description="Original text from the document, verbatim",
     )
+
+    @field_validator("numeric_value", mode="before")
+    @classmethod
+    def coerce_numeric_value(cls, v):
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
 
 
 class EligibilityCriterion(BaseModel):
@@ -250,6 +257,11 @@ class BidAnalysisResponse(BaseModel):
     bid_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v):
+        return v if v is not None else {}
+
     eligibility_criteria: List[EligibilityCriterion] = Field(default_factory=list)
     emd: Optional[EMDDetails] = None
     scope_of_work: Optional[ScopeOfWork] = None
@@ -295,6 +307,11 @@ class VendorEvaluationResponse(BaseModel):
     source: Optional[str] = None
     bid_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v):
+        return v if v is not None else {}
 
     vendor_profile: Optional[VendorProfile] = None
 

@@ -114,45 +114,41 @@ async def _on_analysis_message(
                 )
 
                 # ── Validate required fields ─────────────────────
-                if not company_docs:
-                    raise ValueError("Missing or empty 'companyDocuments' in tender_apply message")
+                if not bid_url and not company_docs:
+                    raise ValueError("Missing both 'bidUrl' and 'companyDocuments' in tender_apply message")
 
                 # ── Separate bid PDF from vendor documents ───────
-                # The bidUrl from NestJS points to the GeM portal page
-                # (not a direct download).  The actual bid PDF is
-                # usually included in companyDocuments with a filename
-                # like "GeM-Bidding-*.pdf".  We identify it here.
-                bid_doc_url = None
-                vendor_doc_urls: list[str] = []
+                # The bidUrl from NestJS is the GeM portal bid document
+                # page (e.g. https://bidplus.gem.gov.in/showbidDocument/…).
+                # The s3_client can download it as a PDF via HTTP.
+                # ALL companyDocuments are vendor documents (GST, PAN, etc.).
+                vendor_doc_urls: list[str] = [
+                    doc["fileUrl"]
+                    for doc in company_docs
+                    if doc.get("fileUrl")
+                ]
 
-                for doc in company_docs:
-                    url = doc.get("fileUrl", "")
-                    if not url:
-                        continue
-                    # Heuristic: filename contains "GeM-Bidding" or "gem-bidding"
-                    lower_url = url.lower()
-                    if "gem-bidding" in lower_url or "gem_bidding" in lower_url:
-                        bid_doc_url = url
-                    else:
-                        vendor_doc_urls.append(url)
+                # Use bidUrl as the bid document
+                bid_doc_url = bid_url if bid_url else None
 
-                # Fallback: if no doc matched the bid pattern, use the
-                # first document as the bid PDF.
+                # Fallback: if bidUrl is missing, look for a GeM-Bidding
+                # file in company docs (legacy behaviour).
                 if not bid_doc_url:
-                    all_urls = [d["fileUrl"] for d in company_docs if d.get("fileUrl")]
-                    if all_urls:
-                        bid_doc_url = all_urls[0]
-                        vendor_doc_urls = all_urls[1:]
+                    for i, url in enumerate(vendor_doc_urls):
+                        if "gem-bidding" in url.lower() or "gem_bidding" in url.lower():
+                            bid_doc_url = url
+                            vendor_doc_urls.pop(i)
+                            break
 
                 if not bid_doc_url:
                     raise ValueError(
                         "Could not determine the bid document URL. "
-                        "Provide a direct S3 URL in companyDocuments or bidUrl."
+                        "Provide bidUrl or include a GeM-Bidding PDF in companyDocuments."
                     )
 
                 _log.info(
-                    "[%s] Bid PDF resolved from companyDocuments: %s",
-                    bid_number, bid_doc_url,
+                    "[%s] Bid PDF: %s  |  Vendor docs: %d",
+                    bid_number, bid_doc_url, len(vendor_doc_urls),
                 )
 
                 job = {
