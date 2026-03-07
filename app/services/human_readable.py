@@ -134,8 +134,12 @@ def generate_human_readable_requirement(criterion: Dict[str, Any]) -> str:
 
         # 3b. BOOLEAN
         if operator == "BOOLEAN":
-            if text_val:
+            if text_val and text_val.lower().strip() not in ("true", "false", "yes", "no"):
                 return f"The bidder must {text_val.lower().rstrip('.')}."
+            if text_val and text_val.lower().strip() in ("true", "yes"):
+                return f"{name} is required for this bid."
+            if text_val and text_val.lower().strip() in ("false", "no"):
+                return f"{name} is not required for this bid."
             return f"The bidder must satisfy the {name.lower()} requirement."
 
         # 3c. IN (set membership)

@@ -16,7 +16,6 @@ from typing import Any, Dict, List
 
 from app.logging_cfg import logger
 from app.services.s3_client import download_file, download_files
-from app.services.human_readable import inject_human_readable_vendor
 
 # Reuse the existing orchestrator helpers (Gemini pipeline, normalization, etc.)
 from app.routers.orchestrator import (
@@ -28,6 +27,52 @@ from app.routers.orchestrator import (
 )
 
 _log = logger.getChild("job_processor")
+
+# Weights for deterministic eligibility score calculation
+_CRITERION_WEIGHTS = {
+    "financial_turnover": 25,
+    "experience": 25,
+    "similar_services": 25,
+    "location_verification": 15,
+}
+_RELAXATION_WEIGHT = 10
+
+
+def _compute_eligibility_score(vendor_eval) -> int:
+    """Compute a deterministic eligibility score from criterion verdicts.
+
+    Weights: Financial 25% | Experience 25% | Similar Services 25%
+             | Location 15% | Relaxations 10%
+    MET = full weight, PARTIAL = half weight, NOT_MET = 0.
+    """
+    score = 0.0
+    for field, weight in _CRITERION_WEIGHTS.items():
+        criterion = getattr(vendor_eval, field, None)
+        if criterion is None:
+            continue
+        status = getattr(criterion, "vendor_compliance_status", None)
+        if status is not None:
+            status = str(status.value if hasattr(status, "value") else status).upper()
+        if status == "MET":
+            score += weight
+        elif status == "PARTIAL":
+            score += weight * 0.5
+
+    # Relaxations: 10% total, split evenly across applicable relaxations
+    relaxations = vendor_eval.relaxations or []
+    applicable = [r for r in relaxations if r.is_applicable]
+    if applicable:
+        per_relaxation = _RELAXATION_WEIGHT / len(applicable)
+        for r in applicable:
+            status = r.vendor_compliance_status
+            if status is not None:
+                status = str(status.value if hasattr(status, "value") else status).upper()
+            if status == "MET":
+                score += per_relaxation
+            elif status == "PARTIAL":
+                score += per_relaxation * 0.5
+
+    return round(score)
 
 
 # ────────────────────────────────────────────────────────
@@ -112,16 +157,21 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 # Extract criterion verdicts with human-readable labels
                 criterion_verdicts = _extract_criterion_verdicts(vendor_eval)
 
-                # Serialize the FULL vendor evaluation response
-                vendor_eval_dict = vendor_eval.model_dump(mode="json")
-
-                # Inject human-readable into the full vendor data as well
-                inject_human_readable_vendor(vendor_eval_dict)
-
-                # Override recommendation based on score threshold
-                score = vendor_eval.eligibility_score
+                # Compute deterministic eligibility score from verdicts
+                score = _compute_eligibility_score(vendor_eval)
                 recommendation = "APPROVED" if score >= 60 else "REJECT"
-                vendor_eval_dict["overall_recommendation"] = recommendation
+
+                # Build acceptance_reasons from criteria that are MET
+                acceptance_reasons = [
+                    f"{v['criterion']}: {v.get('detail', '')}"
+                    for v in criterion_verdicts
+                    if v.get("vendor_compliance_status") == "MET"
+                ]
+
+                # Serialize relaxations and risks
+                relaxations = [r.model_dump(mode="json") for r in (vendor_eval.relaxations or [])]
+                risks = [r.model_dump(mode="json") for r in (vendor_eval.risks or [])]
+                vendor_profile = vendor_eval.vendor_profile.model_dump(mode="json") if vendor_eval.vendor_profile else None
 
                 vendor_results.append({
                     "vendor_id": vendor_id,
@@ -129,7 +179,10 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                     "recommendation": recommendation,
                     "criterion_verdicts": criterion_verdicts,
                     "rejection_reasons": vendor_eval.rejection_reasons or [],
-                    "full_evaluation": vendor_eval_dict,
+                    "acceptance_reasons": acceptance_reasons,
+                    "vendor_profile": vendor_profile,
+                    "relaxations": relaxations,
+                    "risks": risks,
                 })
 
                 _log.info(
@@ -153,6 +206,9 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
         # Serialize the FULL bid analysis response (endpoint 1 data)
         bid_analysis_dict = bid_analysis.model_dump(mode="json")
+
+        # Inject human-readable text into every bid analysis criterion
+        inject_human_readable(bid_analysis_dict.get("eligibility_criteria", []))
 
         result = {
             "job_id": job_id,
