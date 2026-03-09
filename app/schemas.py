@@ -6,6 +6,7 @@ Pydantic models for the GeM Procurement Audit Service — Schema v2.0
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -132,6 +133,14 @@ class EligibilityCriterion(BaseModel):
 
     detail: str = Field(default="", description="Explanation / audit narrative")
     extracted_value: Optional[str] = Field(None, description="Value found in vendor docs (Stage 2)")
+
+    @field_validator("extracted_value", mode="before")
+    @classmethod
+    def coerce_extracted_value(cls, v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, ensure_ascii=False)
+        return v
+
     required_value: Optional[StructuredRequirement] = Field(
         None, description="Machine-evaluable requirement from the bid"
     )
@@ -161,6 +170,14 @@ class Relaxation(BaseModel):
     )
     detail: str = Field(default="")
     extracted_value: Optional[str] = None
+
+    @field_validator("extracted_value", mode="before")
+    @classmethod
+    def coerce_extracted_value(cls, v):
+        if isinstance(v, (dict, list)):
+            return json.dumps(v, ensure_ascii=False)
+        return v
+
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     references: List[DocumentReference] = Field(default_factory=list)
 
