@@ -108,9 +108,28 @@ def parse_s3_url(url: str) -> Tuple[str, str]:
 # Download helpers
 # ────────────────────────────────────────────────────────
 
-async def _download_http(url: str, dest_dir: Path) -> Path:
-    """Download a file from a plain HTTP(S) URL."""
+async def _download_http(url: str, dest_dir: Path, max_retries: int = 3) -> Path:
+    """Download a file from a plain HTTP(S) URL with retry logic.
+    
+    Retries on transient connection failures (Connection refused, timeouts).
+    Uses exponential backoff: 1s, 2s, 4s between attempts.
+    
+    Parameters
+    ----------
+    url : str
+        HTTP(S) URL to download from
+    dest_dir : Path
+        Directory to save the downloaded file
+    max_retries : int
+        Maximum number of retry attempts (default: 3)
+    
+    Returns
+    -------
+    Path
+        Path to the downloaded file
+    """
     import urllib.request
+    import urllib.error
     import ssl
 
     parsed = urlparse(url)
@@ -124,20 +143,71 @@ async def _download_http(url: str, dest_dir: Path) -> Path:
     _log.info("Downloading (HTTP) %s → %s", url, local_path)
 
     ctx = ssl.create_default_context()
-    req = urllib.request.Request(url, headers={"User-Agent": "QistonPe-GemAudit/1.0"})
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(
+                url, 
+                headers={"User-Agent": "QistonPe-GemAudit/1.0"}
+            )
 
-    def _do_download():
-        with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
-            with open(local_path, "wb") as f:
-                while True:
-                    chunk = resp.read(65536)
-                    if not chunk:
-                        break
-                    f.write(chunk)
+            def _do_download():
+                with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+                    with open(local_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(65536)
+                            if not chunk:
+                                break
+                            f.write(chunk)
 
-    await asyncio.to_thread(_do_download)
-    _log.info("Download complete: %s (%.1f KB)", local_path, local_path.stat().st_size / 1024)
-    return local_path
+            await asyncio.to_thread(_do_download)
+            _log.info(
+                "Download complete: %s (%.1f KB)", 
+                local_path, 
+                local_path.stat().st_size / 1024
+            )
+            return local_path
+            
+        except urllib.error.URLError as e:
+            last_exception = e
+            error_msg = str(e.reason) if hasattr(e, 'reason') else str(e)
+            
+            # Check if this is a transient connection error
+            is_transient = (
+                "Connection refused" in error_msg or 
+                "111" in error_msg or
+                "timed out" in error_msg.lower() or
+                "temporarily unavailable" in error_msg.lower()
+            )
+            
+            if is_transient and attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                _log.warning(
+                    "Download attempt %d/%d failed (%s). Retrying in %ds…",
+                    attempt + 1, max_retries, error_msg, wait_time
+                )
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                if not is_transient:
+                    _log.error("Download failed (non-transient error): %s", error_msg)
+                raise RuntimeError(f"Failed to download {url}: {error_msg}") from e
+                
+        except Exception as e:
+            last_exception = e
+            _log.error("Unexpected error downloading %s: %s", url, e)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                _log.info("Retrying in %ds…", wait_time)
+                await asyncio.sleep(wait_time)
+            else:
+                raise RuntimeError(f"Failed to download {url}: {e}") from e
+    
+    # All retries exhausted
+    raise RuntimeError(
+        f"Failed to download {url} after {max_retries} attempts: {last_exception}"
+    ) from last_exception
 
 
 async def download_file(url: str, dest_dir: Path) -> Path:
