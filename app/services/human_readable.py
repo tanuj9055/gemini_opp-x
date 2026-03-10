@@ -33,6 +33,7 @@ _OPERATOR_PHRASES = {
     "<":  "less than",
     "==": "exactly",
     "IN": "one of",
+    "CONTAINS": "contains",
     "BOOLEAN": "",
     "BETWEEN": "between",
 }

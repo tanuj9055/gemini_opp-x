@@ -42,6 +42,7 @@ class ComparisonOperator(str, Enum):
     GT = ">"
     LT = "<"
     IN = "IN"
+    CONTAINS = "CONTAINS"
     BOOLEAN = "BOOLEAN"
     BETWEEN = "BETWEEN"
 
@@ -105,6 +106,29 @@ class StructuredRequirement(BaseModel):
         None,
         description="Original text from the document, verbatim",
     )
+
+    @field_validator("comparison_operator", mode="before")
+    @classmethod
+    def coerce_comparison_operator(cls, v):
+        """Accept unknown operators from Gemini without crashing."""
+        if v is None:
+            return None
+        try:
+            return ComparisonOperator(v)
+        except ValueError:
+            # Map common unknown values to closest valid operator
+            mapping = {
+                "NOT_IN": "IN",
+                "MATCHES": "CONTAINS",
+                "LIKE": "CONTAINS",
+                "NOT_EQUAL": "==",
+                "!=": "==",
+            }
+            mapped = mapping.get(str(v).upper())
+            if mapped:
+                return ComparisonOperator(mapped)
+            # Fallback: treat as equality check
+            return ComparisonOperator.EQ
 
     @field_validator("numeric_value", mode="before")
     @classmethod

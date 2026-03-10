@@ -47,7 +47,7 @@ Return a single JSON object with keys in THIS EXACT ORDER:
      "detail": "<what the document says about this criterion, verbatim or summarised>",
      "extracted_value": null,
      "required_value": {{
-       "comparison_operator": ">=" | "<=" | "==" | ">" | "<" | "IN" | "BOOLEAN" | "BETWEEN" | null,
+       "comparison_operator": ">=" | "<=" | "==" | ">" | "<" | "IN" | "CONTAINS" | "BOOLEAN" | "BETWEEN" | null,
        "numeric_value": <number or null>,
        "unit": "<INR | years | percentage | count | boolean | enum | null>",
        "text_value": "<for IN/BOOLEAN/enum: the allowed values, or description>",
