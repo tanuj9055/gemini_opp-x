@@ -213,8 +213,8 @@ async def _download_http(url: str, dest_dir: Path, max_retries: int = 3) -> Path
 async def download_file(url: str, dest_dir: Path) -> Path:
     """Download a single file to ``dest_dir``.
 
-    Supports S3 URLs (``s3://``, ``https://bucket.s3...``) and plain
-    HTTP(S) URLs (e.g. GeM portal links).
+    Supports S3 URLs (``s3://``) and plain HTTP(S) URLs
+    (e.g. GeM portal links or public S3 HTTPS URLs).
 
     Returns the local ``Path`` to the downloaded file.
     """
