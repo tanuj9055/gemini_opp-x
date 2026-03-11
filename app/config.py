@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     rabbitmq_jobs_queue: str = "bid_evaluation_jobs"
     rabbitmq_results_queue: str = "bid_evaluation_results"
     # ── RabbitMQ (HSN generation) ─────────────────────────
-    rabbitmq_hsn_jobs_queue: str = "hsn_generation_jobs"
+    rabbitmq_hsn_jobs_queue: str = "hsn_requests_queue"
     rabbitmq_hsn_results_queue: str = "hsn_generation_results"
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50

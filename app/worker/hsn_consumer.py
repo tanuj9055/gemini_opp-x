@@ -3,50 +3,51 @@ RabbitMQ HSN Worker – consumes HSN generation jobs and publishes results.
 
 Queues
 ------
-- **Consumes** from: ``hsn_generation_jobs``     (durable queue)
-- **Publishes** to:  ``hsn_generation_results``   (durable queue)
+- **Consumes** from: ``hsn_requests_queue``       (durable queue)
+- **Publishes** to:  ``hsn_generation_results``    (durable queue)
 
-Message contract (Publisher → Python)
--------------------------------------
-Published to ``hsn_generation_jobs``::
-
-    {
-      "bid_id": "GEM/2024/B/12345",
-      "item": "Laptop computer with 8GB RAM and 256GB SSD"
-    }
-
-Or batch::
+Message contract (NestJS → Python)
+-----------------------------------
+NestJS ``ClientProxy.emit()`` publishes to ``hsn_requests_queue``::
 
     {
-      "bids": [
-        {"bid_id": "GEM/2024/B/001", "item": "Laptop computer"},
-        {"bid_id": "GEM/2024/B/002", "item": "Office chairs"}
-      ]
-    }
-
-Result contract (Python → Publisher)
--------------------------------------
-Published to ``hsn_generation_results``::
-
-    {
-      "status": "success",
-      "meta_data": {
-        "total_bids_processed": 2,
-        "model_used": "gemini-2.5-pro",
-        "execution_time_ms": 1234
-      },
+      "pattern": "hsn_generation_request",
       "data": {
-        "results": [
-          {
-            "bid_id": "GEM/2024/B/001",
-            "hsn": "847130",
-            "confidence": "high",
-            "reasoning": "Portable digital automatic data processing machine"
-          }
+        "batchId": "hsn_batch_1710000000000_1",
+        "bids": [
+          {"bidId": 1, "bidNumber": "GEM/2024/B/001", "items": "Laptop computer"},
+          {"bidId": 2, "bidNumber": "GEM/2024/B/002", "items": "Office chairs"}
         ]
-      },
-      "error_code": "",
-      "error_messages": []
+      }
+    }
+
+Result contract (Python → NestJS)
+----------------------------------
+Published to ``hsn_generation_results`` in NestJS microservice format::
+
+    {
+      "pattern": "hsn_generation_result",
+      "data": {
+        "status": "success",
+        "meta_data": {
+          "total_bids_processed": 2,
+          "model_used": "gemini-2.5-pro",
+          "execution_time_ms": 1234
+        },
+        "data": {
+          "results": [
+            {
+              "bid_id": "1",
+              "bidId": 1,
+              "hsn": "847130",
+              "confidence": "high",
+              "reasoning": "Portable digital automatic data processing machine"
+            }
+          ]
+        },
+        "error_code": "",
+        "error_messages": []
+      }
     }
 """
 
@@ -70,33 +71,106 @@ _log = logger.getChild("hsn_worker")
 # Message handler
 # ────────────────────────────────────────────────────────
 
+def _unwrap_nestjs_message(body: dict) -> dict:
+    """Unwrap NestJS microservice message format.
+
+    NestJS ``ClientProxy.emit()`` wraps messages as::
+
+        {"pattern": "<event_name>", "data": {<actual payload>}}
+
+    This helper returns the inner ``data`` dict, or the original
+    body if it isn't in NestJS format.
+    """
+    if "pattern" in body and "data" in body and isinstance(body["data"], dict):
+        _log.info("Unwrapped NestJS message with pattern '%s'", body["pattern"])
+        return body["data"]
+    return body
+
+
+def _map_nestjs_bids_to_python(bids: list) -> tuple:
+    """Map NestJS bid fields to Python format and build a reverse lookup.
+
+    NestJS sends ``{bidId, bidNumber, items}``.
+    Python expects ``{bid_id, item}``.
+
+    Returns (mapped_bids, id_lookup) where *id_lookup* maps the
+    string ``bid_id`` back to the original numeric ``bidId``.
+    """
+    mapped = []
+    id_lookup: dict = {}  # str(bid_id) → original bidId value
+
+    for b in bids:
+        # Accept both NestJS (bidId/items) and Python (bid_id/item) field names
+        bid_id = b.get("bidId") or b.get("bid_id") or b.get("bidNumber", "")
+        item = b.get("items") or b.get("item", "")
+
+        str_bid_id = str(bid_id)
+        id_lookup[str_bid_id] = b.get("bidId") or b.get("bid_id")
+
+        mapped.append({"bid_id": str_bid_id, "item": item})
+
+    return mapped, id_lookup
+
+
+def _map_results_to_nestjs(result: dict, id_lookup: dict) -> dict:
+    """Convert Python result fields back to NestJS format.
+
+    Maps ``bid_id`` → ``bidId`` (original numeric value) in each result item
+    so NestJS can match them to database records.
+    """
+    results_list = result.get("data", {}).get("results", [])
+    for item in results_list:
+        str_id = str(item.get("bid_id", ""))
+        original_id = id_lookup.get(str_id, item.get("bid_id"))
+        item["bidId"] = original_id
+        # Keep bid_id as well for backwards compatibility
+    return result
+
+
 async def _on_hsn_message(
     message: AbstractIncomingMessage,
     channel: aio_pika.abc.AbstractChannel,
 ) -> None:
     """Process a single HSN generation job from RabbitMQ.
 
-    Accepts either:
-      - A single item: ``{"bid_id": "...", "item": "..."}``
-      - A batch:       ``{"bids": [{"bid_id": "...", "item": "..."}, ...]}``
+    Accepts NestJS microservice format::
 
-    Publishes the structured result to ``hsn_generation_results``.
+        {"pattern": "hsn_generation_request", "data": {
+            "batchId": "...",
+            "bids": [{"bidId": 1, "bidNumber": "GEM/...", "items": "..."}]
+        }}
+
+    Also accepts plain format::
+
+        {"bids": [{"bid_id": "...", "item": "..."}]}
+
+    Publishes the structured result to ``hsn_generation_results``
+    in NestJS microservice format.
     """
     settings = get_settings()
     results_queue_name = settings.rabbitmq_hsn_results_queue
 
     try:
-        body = json.loads(message.body.decode())
+        raw_body = json.loads(message.body.decode())
+
+        # ── Unwrap NestJS message format ─────────────────────────
+        body = _unwrap_nestjs_message(raw_body)
 
         # ── Normalise to a list of bids ──────────────────────────
         if "bids" in body and isinstance(body["bids"], list):
-            bids = body["bids"]
+            raw_bids = body["bids"]
         elif "bid_id" in body and "item" in body:
-            bids = [{"bid_id": body["bid_id"], "item": body["item"]}]
+            raw_bids = [{"bid_id": body["bid_id"], "item": body["item"]}]
+        elif "bidId" in body and "items" in body:
+            raw_bids = [{"bidId": body["bidId"], "items": body["items"]}]
         else:
             raise ValueError(
-                "Invalid message format. Expected {bid_id, item} or {bids: [{bid_id, item}, ...]}"
+                "Invalid message format. Expected {bids: [...]} or "
+                "{bid_id, item} or {bidId, items}"
             )
+
+        # Map NestJS fields → Python fields
+        bids, id_lookup = _map_nestjs_bids_to_python(raw_bids)
 
         _log.info(
             "📥 HSN job received – %d bid(s): %s",
@@ -107,14 +181,23 @@ async def _on_hsn_message(
         # ── Run HSN generation ───────────────────────────────────
         result = await generate_hsn_codes(bids)
 
+        # Map Python fields back → NestJS fields
+        result = _map_results_to_nestjs(result, id_lookup)
+
         _log.info(
             "HSN generation done – status=%s  bids=%d",
             result.get("status"),
             result.get("meta_data", {}).get("total_bids_processed", 0),
         )
 
-        # ── Publish result ───────────────────────────────────────
-        result_body = json.dumps(result, ensure_ascii=False, default=str).encode()
+        # ── Publish result in NestJS microservice format ─────────
+        nestjs_message = {
+            "pattern": "hsn_generation_result",
+            "data": result,
+        }
+        result_body = json.dumps(
+            nestjs_message, ensure_ascii=False, default=str
+        ).encode()
 
         await channel.declare_queue(results_queue_name, durable=True)
         await channel.default_exchange.publish(
@@ -144,11 +227,14 @@ async def _on_hsn_message(
         # Publish an error so the caller knows
         try:
             error_result = {
-                "status": "failed",
-                "error": traceback.format_exc(),
-                "data": {},
-                "error_code": "worker_error",
-                "error_messages": [traceback.format_exc()],
+                "pattern": "hsn_generation_result",
+                "data": {
+                    "status": "failed",
+                    "error": traceback.format_exc(),
+                    "data": {},
+                    "error_code": "worker_error",
+                    "error_messages": [traceback.format_exc()],
+                },
             }
             await channel.default_exchange.publish(
                 aio_pika.Message(

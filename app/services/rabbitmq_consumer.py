@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import traceback
 
@@ -95,6 +96,9 @@ async def _on_analysis_message(
             if msg_type == "tender_apply":
                 bid_number = body.get("bidNumber", "UNKNOWN")
                 bid_url = body.get("bidUrl", "")
+                # Fix malformed GeM URLs (missing "/" before path segment)
+                if bid_url:
+                    bid_url = re.sub(r'gem\.gov\.in(?!/)', 'gem.gov.in/', bid_url)
                 company_docs = body.get("companyDocuments", [])
                 bid_details = body.get("bidDetails", {})
 
