@@ -32,8 +32,17 @@ Your task is to analyze government tender items and assign accurate HSN codes ba
 3. Indian HSN classification standards
 4. Common procurement patterns in government tenders
 
+CRITICAL RULES FOR HSN CODES:
+- HSN codes MUST be pure digit strings with NO dots, NO decimals, NO punctuation.
+- HSN codes MUST be 4, 6, or 8 digits long. Nothing else.
+- NEVER return "N/A", "NA", empty strings, or null for hsn. If you are unsure, \
+return your best guess with confidence "low".
+- WRONG: "8482.50.00", "9987.00.00", "N/A", ""
+- CORRECT: "84825000", "99870000", "84714100"
+- If the item description is a service (not goods), use the correct SAC/HSN \
+service code as a pure digit string (e.g. "998719" not "9987.19.00").
+
 Always return valid JSON in the exact format requested.
-Use 6-digit or 8-digit HSN codes as appropriate.
 Provide confidence levels (high/medium/low) based on description clarity.
 
 The response MUST include the bid_id field from the input for each bid.
@@ -68,6 +77,45 @@ def _build_user_prompt(bids: List[Dict[str, str]]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _sanitise_hsn(raw_hsn: Any, bid_id: Any = "") -> str:
+    """Clean an HSN code to a pure digit string of 4–8 characters.
+
+    Handles common Gemini quirks:
+      - Decimal notation:  ``8482.50.00`` → ``84825000``
+      - Dotted pairs:      ``9987.00.00`` → ``99870000``
+      - N/A / null / empty → ``"000000"`` (flagged with warning)
+      - Leading/trailing whitespace
+    """
+    if raw_hsn is None:
+        raw_hsn = ""
+    hsn = str(raw_hsn).strip()
+
+    # Reject obvious non-values
+    if not hsn or hsn.upper() in ("N/A", "NA", "NULL", "NONE", "-"):
+        _log.warning("HSN for bid %s was '%s' — defaulting to '000000'", bid_id, raw_hsn)
+        return "000000"
+
+    # Remove dots / periods (e.g. "8482.50.00" → "84825000")
+    hsn = hsn.replace(".", "")
+
+    # Strip any remaining non-digit characters
+    hsn = re.sub(r"\D", "", hsn)
+
+    if not hsn:
+        _log.warning("HSN for bid %s was '%s' (no digits) — defaulting to '000000'", bid_id, raw_hsn)
+        return "000000"
+
+    # Pad to at least 4 digits
+    if len(hsn) < 4:
+        hsn = hsn.ljust(4, "0")
+
+    # Truncate to max 8 digits
+    if len(hsn) > 8:
+        hsn = hsn[:8]
+
+    return hsn
 
 
 def _strip_markdown_fences(text: str) -> str:
@@ -153,15 +201,16 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
         if not isinstance(parsed.get("results"), list):
             raise ValueError("'results' must be an array")
 
-        # ── Validate each result ─────────────────────────────────
+        # ── Validate & sanitise each result ──────────────────────
         for idx, item in enumerate(parsed["results"]):
-            if "hsn" not in item:
-                raise ValueError(f"Missing 'hsn' in result item {idx}: {item}")
             if "bid_id" not in item and "bidId" not in item:
                 _log.warning("Result item %d missing bid_id", idx)
             # Normalise bidId → bid_id
             if "bidId" in item and "bid_id" not in item:
                 item["bid_id"] = item.pop("bidId")
+
+            # Sanitise HSN code
+            item["hsn"] = _sanitise_hsn(item.get("hsn", ""), item.get("bid_id", idx))
 
         total_bids = len(parsed["results"])
         execution_time_ms = int((time.time() - start_time) * 1000)
