@@ -163,7 +163,8 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
                 # Build acceptance_reasons from criteria that are MET
                 acceptance_reasons = [
-                    f"{v['criterion']}: {v.get('detail', '')}"
+
+                    f"{v['criterion']}: {v.get('detail', '')}"                    
                     for v in criterion_verdicts
                     if v.get("vendor_compliance_status") == "MET"
                 ]
