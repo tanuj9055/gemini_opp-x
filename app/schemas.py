@@ -303,12 +303,18 @@ class BidAnalysisResponse(BaseModel):
     def _coerce_metadata(cls, v):
         return v if v is not None else {}
 
+
+    @field_validator("similar_services_rules", "relaxations", "risks", "eligibility_criteria", mode="before")
+    @classmethod
+    def _coerce_list_fields(cls, v):
+        return v if v is not None else []
+
     eligibility_criteria: List[EligibilityCriterion] = Field(default_factory=list)
     emd: Optional[EMDDetails] = None
     scope_of_work: Optional[ScopeOfWork] = None
-    relaxations: List[Relaxation] = Field(default_factory=list)
-    similar_services_rules: List[SimilarServicesRule] = Field(default_factory=list)
-    risks: List[RiskFlag] = Field(default_factory=list)
+    relaxations: Optional[List[Relaxation]] = Field(default_factory=list)
+    similar_services_rules: Optional[List[SimilarServicesRule]] = Field(default_factory=list)
+    risks: Optional[List[RiskFlag]] = Field(default_factory=list)
 
     normalization_meta: Optional[NormalizationMeta] = None
     raw_ocr_text: Optional[str] = Field(
@@ -367,8 +373,8 @@ class VendorEvaluationResponse(BaseModel):
     similar_services: Optional[EligibilityCriterion] = None
     location_verification: Optional[EligibilityCriterion] = None
 
-    relaxations: List[Relaxation] = Field(default_factory=list)
-    risks: List[RiskFlag] = Field(default_factory=list)
+    relaxations: Optional[List[Relaxation]] = Field(default_factory=list)
+    risks: Optional[List[RiskFlag]] = Field(default_factory=list)
 
     overall_recommendation: Optional[str] = Field(
         None, description="APPROVE / REJECT / REVIEW"
@@ -420,7 +426,7 @@ class VendorEvaluationSummary(BaseModel):
     criterion_verdicts: List[EligibilityCriterion] = Field(default_factory=list)
     vendor_profile: Optional[VendorProfile] = None
     rejection_reasons: List[str] = Field(default_factory=list)
-    risks: List[RiskFlag] = Field(default_factory=list)
+    risks: Optional[List[RiskFlag]] = Field(default_factory=list)
     error: Optional[str] = Field(
         None, description="Error message if this vendor's evaluation failed"
     )
