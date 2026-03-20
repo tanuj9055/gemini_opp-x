@@ -1,7 +1,7 @@
 """
 HSN Code Generation Service.
 
-Uses Gemini to classify government tender items into HSN
+Uses Vertex AI (Gemini) to classify government tender items into HSN
 (Harmonized System of Nomenclature) codes.  Receives bid items,
 sends a structured prompt to Gemini, and returns validated HSN results.
 """
@@ -9,14 +9,34 @@ sends a structured prompt to Gemini, and returns validated HSN results.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from typing import Any, Dict, List
 
+from dotenv import load_dotenv
+
+# MUST be called before importing vertexai
+load_dotenv() 
+
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
+
+# Added Tenacity for rate limit handling
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from google.api_core.exceptions import ResourceExhausted
+
 from app.logging_cfg import logger
-from app.services.gemini_client import generate, parse_json_response
+from app.services.gemini_client import parse_json_response
 
 _log = logger.getChild("hsn_generator")
+
+# ────────────────────────────────────────────────────────
+# Initialize Vertex AI
+# It will automatically use GOOGLE_APPLICATION_CREDENTIALS from the .env
+# ────────────────────────────────────────────────────────
+vertexai.init(project="qistonpe-project-22810", location="us-central1")
+hsn_model = GenerativeModel("gemini-2.5-flash-lite")
 
 # ────────────────────────────────────────────────────────
 # System prompt for HSN classification
@@ -128,6 +148,21 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 # ────────────────────────────────────────────────────────
+# Rate Limit Retry Wrapper
+# ────────────────────────────────────────────────────────
+@retry(
+    stop=stop_after_attempt(6), 
+    wait=wait_exponential(multiplier=2, min=4, max=60), 
+    retry=retry_if_exception_type(ResourceExhausted), 
+    reraise=True
+)
+async def _call_vertex_with_retry(prompt: str, config: GenerationConfig):
+    """Calls Vertex AI and automatically pauses/retries if rate limits are hit."""
+    _log.info("Attempting Vertex AI call...")
+    return await hsn_model.generate_content_async(prompt, generation_config=config)
+
+
+# ────────────────────────────────────────────────────────
 # Public API
 # ────────────────────────────────────────────────────────
 
@@ -147,22 +182,33 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     start_time = time.time()
     _log.info("HSN generation started – %d bids", len(bids))
+    model_used = "gemini-2.5-flash"
 
     try:
         full_prompt = HSN_SYSTEM_PROMPT + "\n\n" + _build_user_prompt(bids)
 
-        # Call Gemini
-        _log.info("Sending HSN request to Gemini …")
-        raw_text, usage = await generate(
-            prompt=full_prompt,
+        # Call Vertex AI (with automatic retry for 429 limits)
+        _log.info("Sending HSN request to Vertex AI …")
+        
+        config = GenerationConfig(
             temperature=0.3,
-            max_output_tokens=16_000,
+            max_output_tokens=32768,
+            response_mime_type="application/json", 
         )
-
-        model_used = usage.get("model", "gemini")
+        
+        # Uses the retry wrapper instead of direct call
+        response = await _call_vertex_with_retry(full_prompt, config)
+        
+        raw_text = response.text
+        
+        # Extract token usage
+        usage = {}
+        if hasattr(response, "usage_metadata"):
+            usage["prompt_tokens"] = response.usage_metadata.prompt_token_count
+            usage["completion_tokens"] = response.usage_metadata.candidates_token_count
 
         if not raw_text:
-            _log.error("Gemini returned empty response for HSN generation")
+            _log.error("Vertex AI returned empty response for HSN generation")
             return _error_response(
                 model_used=model_used,
                 start_time=start_time,
@@ -170,7 +216,7 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
                 messages=["Empty response from AI model"],
             )
 
-        _log.info("Received Gemini response (%d chars)", len(raw_text))
+        _log.info("Received Vertex AI response (%d chars)", len(raw_text))
 
         # Parse JSON (handles fences, truncation, repair)
         cleaned = _strip_markdown_fences(raw_text)
@@ -227,8 +273,8 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
                 "execution_time_ms": execution_time_ms,
                 "prompt_length": len(full_prompt),
                 "response_length": len(raw_text),
-                "prompt_tokens": usage.get("prompt_tokens"),
-                "completion_tokens": usage.get("completion_tokens"),
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
             },
             "data": parsed,
             "error_code": "",
@@ -236,9 +282,9 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
         }
 
     except json.JSONDecodeError as exc:
-        _log.error("Failed to parse Gemini HSN response as JSON: %s", exc)
+        _log.error("Failed to parse Vertex AI HSN response as JSON: %s", exc)
         return _error_response(
-            model_used="gemini",
+            model_used=model_used,
             start_time=start_time,
             error_code="json_parse_error",
             messages=[f"Failed to parse AI response: {exc}"],
@@ -247,7 +293,7 @@ async def generate_hsn_codes(bids: List[Dict[str, str]]) -> Dict[str, Any]:
     except ValueError as exc:
         _log.error("HSN response validation failed: %s", exc)
         return _error_response(
-            model_used="gemini",
+            model_used=model_used,
             start_time=start_time,
             error_code="validation_error",
             messages=[str(exc)],
