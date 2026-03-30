@@ -96,6 +96,7 @@ async def _on_analysis_message(
             if msg_type == "tender_apply":
                 bid_number = body.get("bidNumber", "UNKNOWN")
                 bid_url = body.get("bidUrl", "")
+                customer_id = body.get("customerId")
                 # Fix malformed GeM URLs (missing "/" before path segment)
                 if bid_url:
                     bid_url = re.sub(r'gem\.gov\.in(?!/)', 'gem.gov.in/', bid_url)
@@ -191,6 +192,8 @@ async def _on_analysis_message(
                     raise ValueError("Missing bid document URL")
                 if not vendors:
                     raise ValueError("Missing or empty vendors list")
+                    
+                customer_id = body.get("customerId")
 
                 job = {
                     "job_id": f"generic_{bid_number}_{int(time.time())}",
@@ -207,6 +210,8 @@ async def _on_analysis_message(
             # ── Attach identifiers to result ─────────────────────
             result["type"] = "tender_result"
             result["bidNumber"] = bid_number
+            if customer_id:
+                result["customerId"] = customer_id
 
             elapsed = time.perf_counter() - t0
             result["processing_time_seconds"] = round(elapsed, 2)
