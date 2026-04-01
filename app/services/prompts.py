@@ -22,7 +22,7 @@ EXACTLY as stated in the document. Do NOT assume or hardcode any values.
 Return a single JSON object with keys in THIS EXACT ORDER:
 
 1. "schema_version": "2.0.0"
-2. "source": "<your model name>"
+2. "source": "gemini-2.5-pro"
 3. "bid_id": "<GeM Bid / Tender ID as printed in the document>"
 4. "metadata": {{
      "title": "<bid title>",
@@ -177,12 +177,12 @@ BID JSON:
 Return a single JSON object with keys in THIS EXACT ORDER:
 
 1. "schema_version": "2.0.0"
-2. "source": "<your model name>"
+2. "source": "gemini-2.5-pro"
 3. "bid_id": "<from bid JSON>"
 4. "metadata": {{
      "vendor_files_processed": {vendor_file_count},
      "evaluation_timestamp": "<ISO-8601>",
-     "model": "<your model name>"
+     "model": "gemini-2.5-pro"
    }}
 
 5. "vendor_profile": {{
@@ -274,19 +274,22 @@ FINDING FORMAT — items 7-10 each use this structure:
       "references": [...]
     }}]
 
-13. "overall_recommendation": "APPROVE" | "REJECT" | "REVIEW"
+13. "overall_recommendation": "APPROVE" | "REJECT"
     DETERMINISTIC RULES:
-    - REJECT if: eligibility_score < 40 OR any CRITICAL risk OR any mandatory criterion is NOT_MET.
-    - APPROVE if: eligibility_score >= 70 AND no CRITICAL/HIGH risks AND all mandatory criteria MET.
-    - REVIEW: everything else.
+    - APPROVE if: eligibility_score >= 60.
+    - REJECT if: eligibility_score < 60.
 
-14. "rejection_reasons": ARRAY of strings — audit-grade reasons if REJECT or REVIEW.
+14. "rejection_reasons": ARRAY of strings — audit-grade reasons if REJECT.
     Each reason: "<criterion_id>: <one-line explanation>".
     Empty array [] if APPROVE.
 
-15. "normalization_meta": null
+15. "acceptance_reasons": ARRAY of strings — justification if APPROVE based on >= 60 score.
+    Each reason: "<criterion_id>: <one-line explanation>".
+    Empty array [] if REJECT.
 
-16. "raw_ocr_text": "<concatenated verbatim text of ALL vendor PDFs — MUST be absolute LAST key>"
+16. "normalization_meta": null
+
+17. "raw_ocr_text": "<concatenated verbatim text of ALL vendor PDFs — MUST be absolute LAST key>"
 
 CRITICAL RULES:
 - ALL thresholds come from the Bid JSON. NEVER hardcode amounts, locations, or years.

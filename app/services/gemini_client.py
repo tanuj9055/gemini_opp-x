@@ -86,6 +86,7 @@ async def generate(
     max_output_tokens: int = 16384,
     max_retries: int = 3,
     timeout: int = _GENERATION_TIMEOUT,
+    response_mime_type: str = "application/json",
 ) -> Tuple[str, Dict[str, Any]]:
     """Send a multimodal prompt to Gemini and return ``(text, usage_meta)``."""
     _init_client()
@@ -100,7 +101,7 @@ async def generate(
     config = GenerationConfig(
         temperature=temperature,
         max_output_tokens=max_output_tokens,
-        response_mime_type="application/json",
+        response_mime_type=response_mime_type,
     )
 
     model = GenerativeModel(settings.gemini_model)

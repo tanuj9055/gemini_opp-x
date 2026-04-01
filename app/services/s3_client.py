@@ -44,9 +44,9 @@ def _get_s3_client():
         kwargs = {}
         if settings.aws_region:
             kwargs["region_name"] = settings.aws_region
-        if settings.aws_access_key_id and settings.aws_secret_access_key:
-            kwargs["aws_access_key_id"] = settings.aws_access_key_id
-            kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
+        if settings.aws_access_key and settings.aws_secret_key:
+            kwargs["aws_access_key_id"] = settings.aws_access_key
+            kwargs["aws_secret_access_key"] = settings.aws_secret_key
         _s3_client = boto3.client("s3", **kwargs)
         _log.info("S3 client initialised (region=%s)", settings.aws_region or "default")
     return _s3_client
@@ -290,3 +290,56 @@ async def download_files(urls: List[str], dest_dir: Path) -> List[Path]:
 
     tasks = [_download_indexed(i, url) for i, url in enumerate(urls)]
     return await asyncio.gather(*tasks)
+
+
+async def download_s3_url(url: str) -> bytes:
+    """Download a file directly into memory (bytes).
+    Supports S3 URLs (s3://) and plain HTTP(S) URLs.
+    """
+    if not is_s3_url(url):
+        import urllib.request
+        import ssl
+        
+        ctx = ssl.create_default_context()
+        req = urllib.request.Request(
+            url, 
+            headers={"User-Agent": "QistonPe-GemAudit/1.0"}
+        )
+        def _do_download():
+            with urllib.request.urlopen(req, context=ctx, timeout=120) as resp:
+                return resp.read()
+        return await asyncio.to_thread(_do_download)
+
+    bucket, key = parse_s3_url(url)
+    _log.info("Downloading bytes from s3://%s/%s", bucket, key)
+    
+    client = _get_s3_client()
+    try:
+        response = await asyncio.to_thread(
+            client.get_object,
+            Bucket=bucket,
+            Key=key,
+        )
+        return response["Body"].read()
+    except Exception as exc:
+        _log.error("S3 GetObject failed for s3://%s/%s - %s", bucket, key, exc)
+        raise RuntimeError(f"Failed to download s3://{bucket}/{key}: {exc}") from exc
+
+
+async def upload_bytes_to_s3(data: bytes, bucket: str, key: str, content_type: str = "application/pdf") -> str:
+    """Upload bytes directly to S3 and return the s3:// URL.
+    """
+    _log.info("Uploading %d bytes to s3://%s/%s", len(data), bucket, key)
+    client = _get_s3_client()
+    try:
+        await asyncio.to_thread(
+            client.put_object,
+            Bucket=bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type
+        )
+        return f"s3://{bucket}/{key}"
+    except Exception as exc:
+        _log.error("S3 PutObject failed for s3://%s/%s - %s", bucket, key, exc)
+        raise RuntimeError(f"Failed to upload to s3://{bucket}/{key}: {exc}") from exc

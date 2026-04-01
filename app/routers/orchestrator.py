@@ -178,9 +178,10 @@ def _generate_summary(
         if vs.error:
             parts.append(f"Vendor {vs.vendor_id}: evaluation failed ({vs.error}).")
         elif vs.recommendation == "APPROVE":
+            reasons = "; ".join(vs.acceptance_reasons[:3]) if vs.acceptance_reasons else "criteria met"
             parts.append(
                 f"Vendor {vs.vendor_id} scored {vs.eligibility_score:.0f}/100 "
-                f"and is recommended for approval."
+                f"and is recommended for approval ({reasons})."
             )
         elif vs.recommendation == "REJECT":
             reasons = "; ".join(vs.rejection_reasons[:3]) if vs.rejection_reasons else "criteria not met"

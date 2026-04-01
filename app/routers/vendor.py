@@ -297,10 +297,17 @@ def _normalize_vendor_output(data: dict) -> dict:
     elif isinstance(rr, str):
         data["rejection_reasons"] = [rr] if rr.strip() else []
 
+    # ── Ensure acceptance_reasons is a list ────────────
+    ar = data.get("acceptance_reasons")
+    if ar is None:
+        data["acceptance_reasons"] = []
+    elif isinstance(ar, str):
+        data["acceptance_reasons"] = [ar] if ar.strip() else []
+
     # ── Validate overall_recommendation ────────────────
     rec = str(data.get("overall_recommendation", "")).upper()
-    if rec not in {"APPROVE", "REJECT", "REVIEW"}:
-        data["overall_recommendation"] = "REVIEW"
+    if rec not in {"APPROVE", "REJECT"}:
+        data["overall_recommendation"] = "REJECT"
     else:
         data["overall_recommendation"] = rec
 

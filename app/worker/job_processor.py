@@ -159,15 +159,18 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
                 # Compute deterministic eligibility score from verdicts
                 score = _compute_eligibility_score(vendor_eval)
-                recommendation = "APPROVED" if score >= 60 else "REJECT"
+                
+                # 1. Use the LLM's mathematically enforced recommendation
+                recommendation = vendor_eval.overall_recommendation
 
-                # Build acceptance_reasons from criteria that are MET
-                acceptance_reasons = [
-
-                    f"{v['criterion']}: {v.get('detail', '')}"                    
-                    for v in criterion_verdicts
-                    if v.get("vendor_compliance_status") == "MET"
-                ]
+                # Mutually Exclude: Frontend should only see one list depending on the score
+                rej_reasons = getattr(vendor_eval, "rejection_reasons", []) or []
+                acc_reasons = getattr(vendor_eval, "acceptance_reasons", []) or []
+                
+                if score >= 60:
+                    rej_reasons = []
+                else:
+                    acc_reasons = []
 
                 # Serialize relaxations and risks
                 relaxations = [r.model_dump(mode="json") for r in (vendor_eval.relaxations or [])]
@@ -179,8 +182,8 @@ async def process_evaluation_job(job: Dict[str, Any]) -> Dict[str, Any]:
                     "eligibility_score": score,
                     "recommendation": recommendation,
                     "criterion_verdicts": criterion_verdicts,
-                    "rejection_reasons": vendor_eval.rejection_reasons or [],
-                    "acceptance_reasons": acceptance_reasons,
+                    "rejection_reasons": rej_reasons,
+                    "acceptance_reasons": acc_reasons,
                     "vendor_profile": vendor_profile,
                     "relaxations": relaxations,
                     "risks": risks,

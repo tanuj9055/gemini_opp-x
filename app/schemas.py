@@ -377,11 +377,15 @@ class VendorEvaluationResponse(BaseModel):
     risks: Optional[List[RiskFlag]] = Field(default_factory=list)
 
     overall_recommendation: Optional[str] = Field(
-        None, description="APPROVE / REJECT / REVIEW"
+        None, description="APPROVE / REJECT"
     )
     rejection_reasons: List[str] = Field(
         default_factory=list,
         description="Audit-grade reasons if REJECT — deterministic from criteria",
+    )
+    acceptance_reasons: List[str] = Field(
+        default_factory=list,
+        description="Justification if APPROVE based on >= 60 score",
     )
 
     normalization_meta: Optional[NormalizationMeta] = None
@@ -421,11 +425,12 @@ class VendorEvaluationSummary(BaseModel):
     vendor_id: str
     eligibility_score: float = Field(default=0.0, ge=0, le=100)
     recommendation: Optional[str] = Field(
-        None, description="APPROVE / REJECT / REVIEW"
+        None, description="APPROVE / REJECT"
     )
     criterion_verdicts: List[EligibilityCriterion] = Field(default_factory=list)
     vendor_profile: Optional[VendorProfile] = None
     rejection_reasons: List[str] = Field(default_factory=list)
+    acceptance_reasons: List[str] = Field(default_factory=list)
     risks: Optional[List[RiskFlag]] = Field(default_factory=list)
     error: Optional[str] = Field(
         None, description="Error message if this vendor's evaluation failed"
@@ -445,3 +450,81 @@ class BidEvaluationResponse(BaseModel):
         default_factory=list,
         description="Top-level errors encountered during processing",
     )
+
+
+# ────────────────────────────────────────────────────────
+# Stage 3 — Bid Submission Package (v1.0)
+# ────────────────────────────────────────────────────────
+
+class DocumentType(str, Enum):
+    """Category of a document within a bid submission package."""
+    STANDARD = "STANDARD"
+    DECLARATION = "DECLARATION"
+    GENERATED = "GENERATED"
+    ANNEXURE = "ANNEXURE"
+
+
+class DocumentSource(str, Enum):
+    """Origin of a document in the submission package."""
+    EXISTING = "existing"
+    GENERATED = "generated"
+    TEMPLATE = "template"
+    MISSING = "missing"
+
+
+class DocumentMetadata(BaseModel):
+    """Metadata for a single document in the bid submission package."""
+    name: str = Field(..., description="Document filename or identifier")
+    type: DocumentType = Field(..., description="STANDARD | DECLARATION | GENERATED | ANNEXURE")
+    source: DocumentSource = Field(..., description="existing | generated | template | missing")
+    description: str = Field(default="", description="Brief description of the document")
+
+
+class BidSubmissionPackageRequest(BaseModel):
+    """POST /generate-bid-package request body."""
+    bid_analysis: BidAnalysisResponse = Field(
+        ..., description="Structured output from Stage 1 bid analysis"
+    )
+    vendor_evaluation: VendorEvaluationResponse = Field(
+        ..., description="Structured output from Stage 2 vendor evaluation"
+    )
+    vendor_documents: List[str] = Field(
+        default_factory=list,
+        description="List of vendor document filenames or identifiers (e.g. 'pan.pdf', 'gst_certificate.pdf')",
+    )
+
+
+class BidSubmissionPackageResponse(BaseModel):
+    """POST /generate-bid-package response."""
+    status: str = Field(..., description="SUCCESS or REJECTED")
+    message: Optional[str] = Field(
+        None, description="Human-readable status message"
+    )
+    documents: List[DocumentMetadata] = Field(
+        default_factory=list,
+        description="Complete list of documents in the submission package",
+    )
+    generated_sections: Optional[Dict[str, Any]] = Field(
+        None,
+        description="AI-generated document sections (only for missing generatable docs)",
+    )
+    gap_analysis: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Gap analysis: required, present, missing, generatable, not_generatable",
+    )
+
+
+class PDFGenerationRequest(BaseModel):
+    companyId: str
+    customerId: str
+    bid_analysis: BidAnalysisResponse
+    vendor_evaluation: VendorEvaluationResponse
+    docsLink: List[str]
+
+class PDFGenerationResponse(BaseModel):
+    companyId: str
+    customerId: str
+    status: str
+    pdf_url: Optional[str] = None
+    error: Optional[str] = None
+

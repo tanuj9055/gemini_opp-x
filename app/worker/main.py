@@ -8,7 +8,25 @@ Usage::
 This starts the RabbitMQ consumer directly (no FastAPI / HTTP server).
 """
 
-from app.worker.consumer import run_worker
+import asyncio
+from app.worker.consumer import start_worker
+from app.worker.pdf_consumer import start_pdf_worker
+from app.logging_cfg import logger
+
+_log = logger.getChild("worker_main")
+
+async def main():
+    _log.info("🚀 Starting all AI Workers (standalone mode)")
+    await asyncio.gather(
+        start_worker(),
+        start_pdf_worker()
+    )
+
+def run_all_workers():
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        _log.info("👋 Workers stopped by user")
 
 if __name__ == "__main__":
-    run_worker()
+    run_all_workers()

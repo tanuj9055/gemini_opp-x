@@ -36,9 +36,10 @@ class Settings(BaseSettings):
     log_level: str = "DEBUG"
 
     # ── AWS / S3 ──────────────────────────────────────
-    aws_access_key_id: str = ""
-    aws_secret_access_key: str = ""
+    aws_access_key: str = ""
+    aws_secret_key: str = ""
     aws_region: str = ""
+    aws_s3_bucket: str = ""
 
     # ── RabbitMQ ──────────────────────────────────────
     rabbitmq_url: str = "amqp://localhost"
@@ -47,6 +48,11 @@ class Settings(BaseSettings):
     # ── RabbitMQ (HSN generation) ─────────────────────────
     rabbitmq_hsn_jobs_queue: str = "hsn_requests_queue"
     rabbitmq_hsn_results_queue: str = "hsn_generation_results"
+    
+    # ── RabbitMQ (PDF generation) ─────────────────────────
+    rabbitmq_pdf_jobs_queue: str = "pdf_generation_jobs"
+    rabbitmq_pdf_results_queue: str = "pdf_generation_results"
+    
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 

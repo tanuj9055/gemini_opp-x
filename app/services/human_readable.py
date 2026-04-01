@@ -114,7 +114,18 @@ def generate_human_readable_requirement(criterion: Dict[str, Any]) -> str:
     # ── 3. Structured required_value present ─────────────────────
     if rv and isinstance(rv, dict):
         operator = rv.get("comparison_operator")
-        numeric = rv.get("numeric_value")
+        numeric = rv.get("numeric_value")        
+        # Protect against AI outputting numeric_value as a list instead of float/int
+        if isinstance(numeric, list):
+            if numeric:
+                # take first or try to parse
+                try:
+                    numeric = float(numeric[0])
+                except (ValueError, TypeError):
+                    numeric = None
+            else:
+                numeric = None
+                
         unit = rv.get("unit", "") or ""
         text_val = rv.get("text_value")
         raw_text = rv.get("raw_text")
