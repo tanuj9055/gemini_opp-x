@@ -24,7 +24,7 @@ from app.schemas import (
     DocumentMetadata,
     DocumentSource,
     DocumentType,
-    VendorEvaluationResponse,
+    VendorEvaluationSummary,
 )
 from app.services.document_classifier import (
     classify_vendor_documents,
@@ -46,7 +46,7 @@ _TEMPERATURE = 0.1
 
 async def generate_bid_package(
     bid_analysis: BidAnalysisResponse,
-    vendor_evaluation: VendorEvaluationResponse,
+    vendor_evaluation: VendorEvaluationSummary,
     vendor_documents: List[str],
 ) -> BidSubmissionPackageResponse:
     """Generate a bid submission package using smart gap-fill logic.
@@ -57,8 +57,8 @@ async def generate_bid_package(
     """
 
     # ── Step 1: Eligibility gate ─────────────────────
-    recommendation = (vendor_evaluation.overall_recommendation or "").upper()
-    if recommendation != "APPROVE":
+    recommendation = (vendor_evaluation.recommendation or "").upper()
+    if recommendation not in ("APPROVE", "APPROVED"):
         _log.info(
             "Vendor not approved (recommendation=%s). Returning rejection.",
             recommendation,
@@ -198,7 +198,7 @@ async def generate_bid_package(
 
 async def generate_bid_package_pdf(
     bid_analysis: BidAnalysisResponse,
-    vendor_evaluation: VendorEvaluationResponse,
+    vendor_evaluation: VendorEvaluationSummary,
     vendor_files: Dict[str, bytes],
 ) -> bytes:
     """Generate a fully assembled PDF of the bid submission package.
@@ -215,12 +215,7 @@ async def generate_bid_package_pdf(
     package_result = await generate_bid_package(bid_analysis, vendor_evaluation, filenames)
 
     if package_result.status != "SUCCESS":
-        # Return JSON string as bytes to indicate error (or we could raise exception)
-        # We'll just return a JSON-encoded bytes so caller knows it failed.
-        return json.dumps({
-            "status": package_result.status,
-            "message": package_result.message
-        }).encode("utf-8")
+        raise ValueError(package_result.message)
         
     generated_sections = package_result.generated_sections or {}
 

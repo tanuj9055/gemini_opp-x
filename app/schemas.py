@@ -518,7 +518,7 @@ class PDFGenerationRequest(BaseModel):
     companyId: str
     customerId: str
     bid_analysis: BidAnalysisResponse
-    vendor_evaluation: VendorEvaluationResponse
+    vendor_evaluation: VendorEvaluationSummary
     docsLink: List[str]
 
 class PDFGenerationResponse(BaseModel):

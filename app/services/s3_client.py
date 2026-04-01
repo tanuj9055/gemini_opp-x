@@ -339,7 +339,9 @@ async def upload_bytes_to_s3(data: bytes, bucket: str, key: str, content_type: s
             Body=data,
             ContentType=content_type
         )
-        return f"s3://{bucket}/{key}"
+        settings = get_settings()
+        region = settings.aws_region or "ap-south-1"
+        return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
     except Exception as exc:
         _log.error("S3 PutObject failed for s3://%s/%s - %s", bucket, key, exc)
         raise RuntimeError(f"Failed to upload to s3://{bucket}/{key}: {exc}") from exc

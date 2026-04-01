@@ -19,6 +19,7 @@ from app.routers import bid, bid_package, hsn, orchestrator, vendor
 from app.services.rabbitmq_consumer import start_consumer
 from app.worker.consumer import start_worker
 from app.worker.hsn_consumer import start_hsn_worker
+from app.worker.pdf_consumer import start_pdf_worker
 
 _log = logger.getChild("main")
 
@@ -46,11 +47,15 @@ async def lifespan(app: FastAPI):
         start_worker(settings.rabbitmq_url),
         name="rabbitmq-ai-worker",
     )
+    pdf_worker_task = asyncio.create_task(
+        start_pdf_worker(settings.rabbitmq_url),
+        name="rabbitmq-pdf-worker",
+    )
     
 
     yield
 
-    for task in (consumer_task, worker_task ):
+    for task in (consumer_task, worker_task, pdf_worker_task):
         task.cancel()
         try:
             await task
