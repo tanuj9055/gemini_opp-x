@@ -6,7 +6,7 @@ and to merge multiple PDFs into a single continuous stream.
 """
 
 import io
-from typing import List, Any
+from typing import List, Any, Tuple
 
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.pagesizes import A4
@@ -112,20 +112,20 @@ def render_section_to_pdf(section_key: str, content: Any, bid_id: str) -> bytes:
     buffer.close()
     return pdf_bytes
 
-def merge_pdfs(pdf_bytes_list: List[bytes]) -> bytes:
+def merge_pdfs(pdf_list: List[Tuple[str, bytes]]) -> bytes:
     """
-    Merge a list of PDF byte sequences into a single PDF byte sequence.
+    Merge a list of (filename, PDF byte sequences) into a single PDF byte sequence.
     """
-    _log.info("Merging %d PDFs", len(pdf_bytes_list))
+    _log.info("Merging %d PDFs", len(pdf_list))
     writer = PdfWriter()
 
-    for pdf_data in pdf_bytes_list:
+    for filename, pdf_data in pdf_list:
         try:
             reader = PdfReader(io.BytesIO(pdf_data))
             for page in reader.pages:
                 writer.add_page(page)
         except Exception as e:
-            _log.error("Failed to merge a PDF part: %s", e)
+            _log.error("Failed to merge PDF part '%s': %s", filename, e)
 
     out_buffer = io.BytesIO()
     writer.write(out_buffer)

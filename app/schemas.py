@@ -161,9 +161,13 @@ class EligibilityCriterion(BaseModel):
     @field_validator("extracted_value", mode="before")
     @classmethod
     def coerce_extracted_value(cls, v):
+        if v is None:
+            return None
         if isinstance(v, (dict, list)):
             return json.dumps(v, ensure_ascii=False)
-        return v
+        if isinstance(v, bool):
+            return "Yes" if v else "No"
+        return str(v)
 
     required_value: Optional[StructuredRequirement] = Field(
         None, description="Machine-evaluable requirement from the bid"
@@ -198,9 +202,13 @@ class Relaxation(BaseModel):
     @field_validator("extracted_value", mode="before")
     @classmethod
     def coerce_extracted_value(cls, v):
+        if v is None:
+            return None
         if isinstance(v, (dict, list)):
             return json.dumps(v, ensure_ascii=False)
-        return v
+        if isinstance(v, bool):
+            return "Yes" if v else "No"
+        return str(v)
 
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     references: List[DocumentReference] = Field(default_factory=list)

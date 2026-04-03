@@ -158,6 +158,8 @@ def _normalize_gemini_output(data: dict) -> dict:
     - relaxations / similar_services_rules / risks: dict-of-dicts → list-of-dicts
     - risk category & severity normalisation
     """
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected a JSON object (dict) from Gemini, but got {type(data).__name__}. The response was likely truncated or malformed.")
 
     # ── Normalise eligibility_criteria ─────────────────
     for item in data.get("eligibility_criteria", []):

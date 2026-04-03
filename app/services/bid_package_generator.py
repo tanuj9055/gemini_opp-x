@@ -232,12 +232,12 @@ async def generate_bid_package_pdf(
 
     # ── Step 3: Assemble PDF merge list in exact order ──
     # 1. Cover Letter
-    pdf_list: List[bytes] = [pdf_cover_letter]
+    pdf_list: List[tuple[str, bytes]] = [("AI_Cover_Letter.pdf", pdf_cover_letter)]
     
     # 2. Standard vendor documents
     for fname, fbytes in vendor_files.items():
         if fname.lower().endswith(".pdf"):
-            pdf_list.append(fbytes)
+            pdf_list.append((fname, fbytes))
         else:
             _log.warning("Skipping non-PDF vendor file: %s", fname)
             
@@ -246,10 +246,10 @@ async def generate_bid_package_pdf(
     # 5. Experience Statement
     # 6. Declaration / Undertaking
     pdf_list.extend([
-        pdf_financial_comp,
-        pdf_technical_comp,
-        pdf_experience,
-        pdf_declaration
+        ("AI_Financial_Compliance.pdf", pdf_financial_comp),
+        ("AI_Technical_Compliance.pdf", pdf_technical_comp),
+        ("AI_Experience_Statement.pdf", pdf_experience),
+        ("AI_Declaration.pdf", pdf_declaration)
     ])
     
     # ── Step 4: Merge ──

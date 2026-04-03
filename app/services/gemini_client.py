@@ -83,7 +83,7 @@ async def generate(
     prompt: str,
     file_handles: List[Any] | None = None,
     temperature: float = 0.2,
-    max_output_tokens: int = 16384,
+    max_output_tokens: int = 65536,
     max_retries: int = 3,
     timeout: int = _GENERATION_TIMEOUT,
     response_mime_type: str = "application/json",
