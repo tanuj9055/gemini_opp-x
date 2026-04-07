@@ -106,7 +106,27 @@ def render_section_to_pdf(section_key: str, content: Any, bid_id: str) -> bytes:
             else:
                 story.append(Paragraph(line_clean, body_style))
 
-    doc.build(story)
+    try:
+        doc.build(story)
+    except Exception as e:
+        _log.warning("Table layout failed, falling back to paragraph rendering: %s", e)
+        # Fallback to paragraph rendering if table is too large for page
+        story = []
+        story.append(Paragraph(f"<b>GeM Bid ID:</b> {bid_id} | <b>Section:</b> {formatted_title}", header_style))
+        story.append(Paragraph(formatted_title, title_style))
+        story.append(Spacer(1, 0.2 * inch))
+        
+        if isinstance(content, list) and len(content) > 0 and isinstance(content[0], dict):
+            for row in content:
+                for k, v in row.items():
+                    k_str = str(k).replace("_", " ").title()
+                    v_str = str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    story.append(Paragraph(f"<b>{k_str}:</b> {v_str}", body_style))
+                story.append(Spacer(1, 0.2 * inch))
+        else:
+            story.append(Paragraph("Failed to render content.", body_style))
+            
+        doc.build(story)
     
     pdf_bytes = buffer.getvalue()
     buffer.close()
