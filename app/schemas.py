@@ -536,3 +536,120 @@ class PDFGenerationResponse(BaseModel):
     pdf_url: Optional[str] = None
     error: Optional[str] = None
 
+
+# ────────────────────────────────────────────────────────
+# Tender Rule Extraction — Agent 1 (v1.0)
+# ────────────────────────────────────────────────────────
+
+class RuleType(str, Enum):
+    """Category of an extracted eligibility rule (Agent 1)."""
+    BIDDER_TURNOVER = "bidder_turnover"
+    OEM_TURNOVER = "oem_turnover"
+    EXPERIENCE_YEARS = "experience_years"
+    PAST_PERFORMANCE = "past_performance_percentage"
+    CERTIFICATE = "certificate_required"
+    EMD_REQUIRED = "emd_required"
+    EPBG_PERCENTAGE = "epbg_percentage"
+    EXEMPTION_MSE = "exemption_mse"
+    EXEMPTION_STARTUP = "exemption_startup"
+    OTHER_SPECIFIC = "other_specific"
+
+
+class RuleOperator(str, Enum):
+    """Comparison operator for a rule's value."""
+    GTE = ">="
+    LTE = "<="
+    EQ = "=="
+    EXISTS = "exists"
+
+
+class ExtractedRule(BaseModel):
+    """A single structured eligibility rule extracted from a tender document."""
+    id: str = Field(..., description="Unique rule identifier, e.g. 'rule_1'")
+    type: RuleType = Field(..., description="Rule category")
+    operator: RuleOperator = Field(..., description="Comparison operator")
+    value: Optional[Any] = Field(None, description="Threshold value (number or string)")
+    unit: Optional[str] = Field(None, description="Unit: INR, years, %, or null")
+    applies_to: Optional[str] = Field(None, description="Applicability: bidder, oem, both, or null")
+    description: str = Field(..., description="Human-readable rule description")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Extraction confidence")
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def coerce_rule_type(cls, v):
+        if v is None:
+            return RuleType.OTHER_SPECIFIC
+        try:
+            return RuleType(v)
+        except ValueError:
+            # Fallback mapping for older prompts or variations
+            mapping = {
+                "turnover": RuleType.BIDDER_TURNOVER,
+                "experience": RuleType.EXPERIENCE_YEARS,
+                "certificate": RuleType.CERTIFICATE,
+                "financial": RuleType.EMD_REQUIRED,
+                "other": RuleType.OTHER_SPECIFIC,
+            }
+            return mapping.get(str(v).lower(), RuleType.OTHER_SPECIFIC)
+
+    @field_validator("operator", mode="before")
+    @classmethod
+    def coerce_operator(cls, v):
+        if v is None:
+            return RuleOperator.EXISTS
+        try:
+            return RuleOperator(v)
+        except ValueError:
+            mapping = {
+                ">": RuleOperator.GTE,
+                "<": RuleOperator.LTE,
+                "=": RuleOperator.EQ,
+                "EXIST": RuleOperator.EXISTS,
+                "HAS": RuleOperator.EXISTS,
+            }
+            mapped = mapping.get(str(v).upper(), RuleOperator.EXISTS)
+            return RuleOperator(mapped)
+
+
+class TenderExtractionResult(BaseModel):
+    """Complete result of tender rule extraction (Agent 1 output)."""
+    tender_id: str = Field(..., description="Tender / Bid identifier")
+    rules: List[ExtractedRule] = Field(default_factory=list, description="Extracted eligibility rules")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Extraction metadata (title, dates, etc.)")
+    raw_ocr_text: Optional[str] = Field(None, description="Full OCR text from tender PDF")
+
+    @field_validator("rules", mode="before")
+    @classmethod
+    def coerce_rules(cls, v):
+        return v if v is not None else []
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def coerce_metadata(cls, v):
+        return v if v is not None else {}
+
+# ────────────────────────────────────────────────────────
+# Tender Analysis Result — Agent 2 (v1.0)
+# ────────────────────────────────────────────────────────
+
+class TenderAnalysisResult(BaseModel):
+    """Result of tender analysis (Agent 2 output).
+    scope_of_work, key_requirements, risks, metadata
+    DO NOT include structured rule extraction or eligibility criteria.
+    """
+    tender_id: str = Field(..., description="Tender / Bid identifier")
+    scope_of_work: str = Field(..., description="Detailed scope of work from the tender")
+    key_requirements: List[str] = Field(default_factory=list, description="Key operational/technical requirements")
+    risks: List[Dict[str, Any]] = Field(default_factory=list, description="List of identified risks with severity and category")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Metadata such as published date, title, etc.")
+
+    @field_validator("key_requirements", "risks", mode="before")
+    @classmethod
+    def coerce_list_fields(cls, v):
+        return v if v is not None else []
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def coerce_metadata_analysis(cls, v):
+        return v if v is not None else {}
+

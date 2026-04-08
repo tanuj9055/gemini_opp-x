@@ -52,7 +52,15 @@ class Settings(BaseSettings):
     # ── RabbitMQ (PDF generation) ─────────────────────────
     rabbitmq_pdf_jobs_queue: str = "pdf_generation_jobs"
     rabbitmq_pdf_results_queue: str = "pdf_generation_results"
+
+    # ── RabbitMQ (Tender rule extraction) ─────────────────
+    rabbitmq_extraction_jobs_queue: str = "tender_extraction_jobs"
+    rabbitmq_extraction_results_queue: str = "tender_extraction_results"
     
+    # ── RabbitMQ (Tender Analysis Agent) ──────────────────
+    rabbitmq_analysis_jobs_queue: str = "tender_analysis_jobs"
+    rabbitmq_analysis_results_queue: str = "tender_analysis_results"
+
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 

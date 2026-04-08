@@ -301,3 +301,192 @@ CRITICAL RULES:
 - bounding_box: normalised 0–1000.
 - Return ONLY valid JSON. No markdown fences.
 """
+
+
+# ────────────────────────────────────────────────────────
+# Tender Rule Extraction Prompt — Agent 1 (v1.0)
+# ────────────────────────────────────────────────────────
+
+RULE_EXTRACTION_PROMPT = """\
+You are an information extraction engine.
+
+Your task is to extract structured eligibility rules from a GeM tender document.
+
+---
+
+## RULES TO EXTRACT
+
+Extract ALL eligibility-related rules defined in the document:
+
+1. BIDDER TURNOVER — Minimum turnover requirement for bidder
+   type: "bidder_turnover", operator: ">=", unit: "INR", applies_to: "bidder"
+
+2. OEM TURNOVER — Minimum turnover requirement for OEM
+   type: "oem_turnover", operator: ">=", unit: "INR", applies_to: "oem"
+
+3. EXPERIENCE (YEARS) — Required years of past experience
+   type: "experience_years", operator: ">=", unit: "years"
+
+4. PAST PERFORMANCE — Percentage-based supply/performance requirement
+   type: "past_performance_percentage", operator: ">=", unit: "%"
+
+5. CERTIFICATES / DOCUMENTS — Required documents or certifications
+   type: "certificate_required", operator: "exists"
+
+6. EMD REQUIREMENT — Earnest Money Deposit requirement
+   type: "emd_required", operator: "==", unit: "INR"
+
+7. EPBG REQUIREMENT — Performance bank guarantee percentage
+   type: "epbg_percentage", operator: "==", unit: "%"
+
+8. EXEMPTIONS — MSE / Startup exemptions
+   type: "exemption_mse" or "exemption_startup", operator: "==", value: "Yes" or "No"
+
+9. OTHER ELIGIBILITY RULES — Only if no category fits
+   type: "other_specific"
+
+---
+
+## STRICT OUTPUT FORMAT
+
+Return ONLY valid JSON.
+
+Each rule MUST follow:
+
+{
+"id": "rule_1",
+"type": "<ENUM>",
+"operator": ">= | <= | == | exists",
+"value": number | string | null,
+"unit": "INR | years | % | null",
+"applies_to": "bidder | oem | both | null",
+"description": "exact human-readable rule",
+"confidence": 0.0 to 1.0
+}
+
+---
+
+## EXTRACTION RULES
+
+* Extract values EXACTLY as written in the document.
+* NEVER invent or assume thresholds.
+* DO NOT merge multiple rules into one.
+* DO NOT skip any eligibility-related rule.
+* Each rule must have a unique sequential id: "rule_1", "rule_2", etc.
+* If a criterion exists but the threshold is unclear, still extract it with confidence < 0.5.
+* Use "applies_to" wherever relevant.
+* Avoid using "other_specific" unless absolutely necessary.
+* Keep descriptions concise and factual.
+
+---
+
+## CRITICAL CONSTRAINTS
+
+* DO NOT evaluate eligibility.
+* DO NOT explain reasoning.
+* DO NOT summarize the document.
+* DO NOT output anything except valid JSON.
+
+---
+---
+
+## ADDITIONAL NORMALIZATION RULES
+
+* Do NOT generate conflicting rules for the same type.
+* If multiple conditions exist, keep them separate and clearly described.
+* Keep descriptions short and focused on the core requirement only.
+* Do NOT include long explanatory paragraphs.
+* Use confidence realistically (not always 1.0).
+
+Additional allowed type:
+
+* epbg_duration_months
+
+
+## GOAL
+
+Convert the tender document into a normalized rule set that can be evaluated without reinterpretation.
+
+"""
+
+# ────────────────────────────────────────────────────────
+# Tender Analysis Insights Prompt — Agent 2
+# ────────────────────────────────────────────────────────
+
+BID_ANALYSIS_INSIGHTS_PROMPT = """\
+You are an expert Tender Analyst evaluating a GeM (Government e-Marketplace) bid document.
+
+Your task is to analyze the document and extract high-level insights: the Scope of Work, Key Requirements, and potential Risks.
+
+---
+
+## STRICT OUTPUT FORMAT
+
+Return ONLY valid JSON.
+
+The output MUST contain:
+
+1. "tender_id": The exact Tender/Bid ID from the document.
+
+2. "scope_of_work": A concise summary of the main scope of work, deliverables, and services requested (maximum 5–6 sentences).
+
+3. "key_requirements": A list of key operational, technical, or delivery requirements.
+
+   * Each item must be a short, clear sentence.
+
+4. "risks": A list of identified risks. Each risk MUST be an object with:
+   {
+   "category": "SYSTEMIC_GEM_RISK" | "BUYER_ATC_RISK" | "BID_SPECIFIC_COMPLIANCE_RISK",
+   "severity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+   "description": "Clear and factual description of the risk"
+   }
+
+5. "metadata": {
+   "title": string,
+   "published_date": string,
+   "estimated_value": number | null
+   }
+
+---
+
+## CRITICAL RULES
+
+* DO NOT include eligibility criteria.
+
+* DO NOT include structured rule extraction (turnover, experience, etc.).
+
+* DO NOT evaluate vendor eligibility.
+
+* DO NOT mix with rule extraction logic.
+
+* Extract information ONLY from the document.
+
+* DO NOT invent or assume missing details.
+
+* DO NOT speculate beyond what is clearly stated or strongly implied.
+
+* Risk categories MUST strictly be one of:
+
+  * SYSTEMIC_GEM_RISK
+  * BUYER_ATC_RISK
+  * BID_SPECIFIC_COMPLIANCE_RISK
+  * DO NOT create new categories.
+
+* Keep scope_of_work concise (maximum 5–6 sentences).
+
+* Keep key_requirements clear and atomic (one requirement per item).
+
+* metadata fields MUST follow:
+
+  * title → string
+  * published_date → string
+  * estimated_value → number or null
+
+---
+
+## GOAL
+
+Produce a clean, structured, and user-friendly analysis of the tender
+that can be directly displayed in a UI without further interpretation.
+
+"""
