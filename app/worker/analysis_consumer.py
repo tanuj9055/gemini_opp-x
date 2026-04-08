@@ -75,12 +75,13 @@ async def _on_analysis_message(
         body = _unwrap_nestjs_message(raw_body)
 
         job_id = body.get("job_id", "")
+        customer_id = body.get("customer_id", "UNKNOWN")
         tender_id = body.get("tender_id", "UNKNOWN")
         tender_document_url = body.get("tender_document_url", "")
 
         _log.info(
-            "📥 Analysis job received — tender_id=%s  url=%s",
-            tender_id,
+            "📥 Analysis job received — job_id=%s tender_id=%s customer_id=%s url=%s",
+            job_id, tender_id, customer_id,
             tender_document_url[:120] if tender_document_url else "(empty)",
         )
 
@@ -89,7 +90,8 @@ async def _on_analysis_message(
                 f"Missing 'tender_document_url' in analysis job for tender_id={tender_id}"
             )
 
-        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_analysis_{tender_id}_"))
+        safe_tender_id = tender_id.replace("/", "_").replace("\\", "_")
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_analysis_{safe_tender_id}_"))
         _log.debug(
             "[%s] Downloading tender PDF to temp dir: %s",
             tender_id, tmp_dir,
@@ -124,6 +126,7 @@ async def _on_analysis_message(
         elapsed = time.perf_counter() - t0
         result_payload = {
             "job_id": job_id,
+            "customer_id": customer_id,
             "tender_id": tender_id,
             "status": "completed",
             "analysis_result": analysis_result.model_dump(mode="json"),
@@ -158,6 +161,7 @@ async def _on_analysis_message(
         elapsed = time.perf_counter() - t0
         error_payload = {
             "job_id": body.get("job_id", "") if 'body' in locals() else "",
+            "customer_id": body.get("customer_id", "") if 'body' in locals() else "",
             "tender_id": tender_id,
             "status": "failed",
             "analysis_result": None,

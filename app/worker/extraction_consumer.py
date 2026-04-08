@@ -99,11 +99,13 @@ async def _on_extraction_message(
         body = _unwrap_nestjs_message(raw_body)
 
         tender_id = body.get("tender_id", "UNKNOWN")
+        job_id = body.get("job_id", "UNKNOWN")
+        customer_id = body.get("customer_id", "UNKNOWN")
         tender_document_url = body.get("tender_document_url", "")
 
         _log.info(
-            "📥 Extraction job received — tender_id=%s  url=%s",
-            tender_id,
+            "📥 Extraction job received — job_id=%s tender_id=%s customer_id=%s url=%s",
+            job_id, tender_id, customer_id,
             tender_document_url[:120] if tender_document_url else "(empty)",
         )
 
@@ -114,7 +116,8 @@ async def _on_extraction_message(
             )
 
         # ── Download tender PDF ──────────────────────────────────
-        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_extract_{tender_id}_"))
+        safe_tender_id = tender_id.replace("/", "_").replace("\\", "_")
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_extract_{safe_tender_id}_"))
         _log.debug(
             "[%s] Downloading tender PDF to temp dir: %s",
             tender_id, tmp_dir,
@@ -150,6 +153,8 @@ async def _on_extraction_message(
         # ── Build success result ─────────────────────────────────
         elapsed = time.perf_counter() - t0
         result = {
+            "job_id": job_id,
+            "customer_id": customer_id,
             "tender_id": tender_id,
             "status": "completed",
             "extraction_result": extraction_result.model_dump(mode="json"),
@@ -208,6 +213,8 @@ async def _on_extraction_message(
         # Publish error result so the caller knows
         try:
             error_result = {
+                "job_id": locals().get("job_id", "UNKNOWN"),
+                "customer_id": locals().get("customer_id", "UNKNOWN"),
                 "tender_id": tender_id,
                 "status": "failed",
                 "extraction_result": None,
