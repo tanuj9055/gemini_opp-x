@@ -101,24 +101,76 @@ async def analyze_bid(tender_pdf_path: Path) -> TenderAnalysisResult:
                 f"{data.get('_parse_error')}"
             )
 
-        # ── Step 5: Validate through Pydantic schema ─────────────
-        data.setdefault("tender_id", "UNKNOWN")
-        data.setdefault("scope_of_work", "")
-        data.setdefault("key_requirements", [])
-        data.setdefault("risks", [])
-        data.setdefault("metadata", {})
+        # Log raw LLM output
+        _log.info("📝 Raw LLM Output: %s", data)
 
-        result = TenderAnalysisResult(**data)
+        # ── Step 5: Validate and Map through Pydantic schema ─────
+        tender_id = data.get("tender_id", "UNKNOWN")
+        metadata = data.get("metadata", {})
+
+        # Extract the tender_analysis block if it exists
+        analysis_block = data.get("tender_analysis", {})
+        if not analysis_block:
+            # Fallback if the agent returned the direct/old structure
+            analysis_block = data
+
+        def ensure_list(val):
+            return val if isinstance(val, list) else []
+
+        # Technical Requirements mapping
+        tech_reqs = analysis_block.get("technical_requirements")
+        if tech_reqs is None:
+            old_keys = ensure_list(data.get("key_requirements", []))
+            tech_reqs = [{"id": f"TR-{i}", "requirement": req, "type": "Legacy"} if isinstance(req, str) else req for i, req in enumerate(old_keys)]
+        else:
+            tech_reqs = ensure_list(tech_reqs)
+
+        # Scope of Work mapping
+        sow_field = analysis_block.get("scope_of_work")
+        if sow_field is None or isinstance(sow_field, str):
+            sow_str = sow_field if isinstance(sow_field, str) else data.get("scope_of_work", "")
+            sow_list = [{"summary": sow_str}] if sow_str else []
+        else:
+            sow_list = ensure_list(sow_field)
+
+        # Risks mapping
+        risks_field = ensure_list(analysis_block.get("risks", data.get("risks", [])))
+        risks_list = []
+        for r in risks_field:
+            if isinstance(r, str):
+                risks_list.append({"risk": r, "severity": "medium"})
+            elif isinstance(r, dict):
+                risk_text = r.get("risk", r.get("description", r.get("title", "Unknown Risk")))
+                severity = str(r.get("severity", "medium")).lower()
+                if severity not in ["low", "medium", "high"]: severity = "medium"
+                risks_list.append({"risk": risk_text, "severity": severity})
+
+        tender_analysis = {
+            "technical_requirements": tech_reqs,
+            "commercial_terms": ensure_list(analysis_block.get("commercial_terms", [])),
+            "important_dates": ensure_list(analysis_block.get("important_dates", [])),
+            "evaluation_criteria": ensure_list(analysis_block.get("evaluation_criteria", [])),
+            "scope_of_work": sow_list,
+            "risks": risks_list
+        }
+
+        _log.info("📝 Parsed Structured Output: %s", tender_analysis)
+
+        result = TenderAnalysisResult(
+            tender_id=tender_id,
+            tender_analysis=tender_analysis,
+            metadata=metadata
+        )
 
         # ── Step 6: Log completion ───────────────────────────────
         total_elapsed = time.perf_counter() - t0
         _log.info(
             "✅ Bid analysis COMPLETED — "
-            "tender_id=%s  reqs=%d  risks=%d  elapsed=%.2fs  "
+            "tender_id=%s  tech_reqs=%d  risks=%d  elapsed=%.2fs  "
             "prompt_tokens=%s  completion_tokens=%s",
             result.tender_id,
-            len(result.key_requirements),
-            len(result.risks),
+            len(result.tender_analysis.technical_requirements),
+            len(result.tender_analysis.risks),
             total_elapsed,
             usage.get("prompt_tokens", "?"),
             usage.get("completion_tokens", "?"),

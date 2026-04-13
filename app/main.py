@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logging_cfg import logger
 from app.routers import bid, bid_package, hsn, orchestrator, vendor
+from app.routers import test_routes
 from app.services.rabbitmq_consumer import start_consumer
 from app.worker.consumer import start_worker
 from app.worker.extraction_consumer import start_extraction_worker
@@ -111,6 +112,7 @@ app.include_router(vendor.router)
 app.include_router(orchestrator.router)
 app.include_router(hsn.router)
 app.include_router(bid_package.router)
+app.include_router(test_routes.router)
 
 # ── Health check ─────────────────────────────────────────
 

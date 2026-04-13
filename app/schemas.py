@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -632,24 +632,157 @@ class TenderExtractionResult(BaseModel):
 # Tender Analysis Result — Agent 2 (v1.0)
 # ────────────────────────────────────────────────────────
 
-class TenderAnalysisResult(BaseModel):
-    """Result of tender analysis (Agent 2 output).
-    scope_of_work, key_requirements, risks, metadata
-    DO NOT include structured rule extraction or eligibility criteria.
-    """
-    tender_id: str = Field(..., description="Tender / Bid identifier")
-    scope_of_work: str = Field(..., description="Detailed scope of work from the tender")
-    key_requirements: List[str] = Field(default_factory=list, description="Key operational/technical requirements")
-    risks: List[Dict[str, Any]] = Field(default_factory=list, description="List of identified risks with severity and category")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Metadata such as published date, title, etc.")
+class TechnicalRequirement(BaseModel):
+    id: str
+    requirement: str
+    type: str
 
-    @field_validator("key_requirements", "risks", mode="before")
-    @classmethod
-    def coerce_list_fields(cls, v):
-        return v if v is not None else []
+class CommercialTerm(BaseModel):
+    id: str
+    type: str
+    value: Union[str, float]
+    unit: Optional[str] = None
+
+class ImportantDate(BaseModel):
+    event: str
+    date: str
+    raw_text: Optional[str] = None
+
+class EvaluationCriteriaItem(BaseModel):
+    type: str
+    value: str
+
+class ScopeOfWorkItem(BaseModel):
+    summary: str
+
+class RiskItem(BaseModel):
+    risk: str
+    severity: str
+
+class TenderAnalysisData(BaseModel):
+    technical_requirements: List[TechnicalRequirement] = Field(default_factory=list)
+    commercial_terms: List[CommercialTerm] = Field(default_factory=list)
+    important_dates: List[ImportantDate] = Field(default_factory=list)
+    evaluation_criteria: List[EvaluationCriteriaItem] = Field(default_factory=list)
+    scope_of_work: List[ScopeOfWorkItem] = Field(default_factory=list)
+    risks: List[RiskItem] = Field(default_factory=list)
+
+class TenderAnalysisEndpointResponse(BaseModel):
+    tender_analysis: TenderAnalysisData
+
+class TenderAnalysisResult(BaseModel):
+    """Result of tender analysis (Agent 2 output)."""
+    tender_id: str = Field(default="UNKNOWN", description="Tender / Bid identifier")
+    tender_analysis: TenderAnalysisData = Field(default_factory=TenderAnalysisData)
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Metadata such as published date, title, etc.")
 
     @field_validator("metadata", mode="before")
     @classmethod
     def coerce_metadata_analysis(cls, v):
         return v if v is not None else {}
+
+
+# ────────────────────────────────────────────────────────
+# Test / Debug Endpoint Schemas
+# ────────────────────────────────────────────────────────
+
+class ExtractRulesTestRequest(BaseModel):
+    """POST /test/extract-rules request body."""
+    tender_document: str = Field(
+        ..., description="Raw text content of the tender document"
+    )
+
+
+class AnalyzeBidTestRequest(BaseModel):
+    """POST /test/analyze-bid request body."""
+    tender_document: str = Field(
+        ..., description="Raw text content of the tender document"
+    )
+
+
+# ── Classification Agent schemas ─────────────────────────
+
+class CheckableRule(BaseModel):
+    """A rule that CAN be evaluated against the customer profile."""
+    id: str = Field(..., description="Rule identifier, e.g. 'rule_1'")
+    text: str = Field(..., description="Human-readable rule text")
+    used_fields: List[str] = Field(
+        default_factory=list,
+        description="Customer profile fields used to check this rule, e.g. ['financials.turnover_last_3_years']",
+    )
+
+
+class NonCheckableRule(BaseModel):
+    """A rule that CANNOT be evaluated due to missing customer data."""
+    id: str = Field(..., description="Rule identifier")
+    text: str = Field(..., description="Human-readable rule text")
+    missing_fields: List[str] = Field(
+        default_factory=list,
+        description="Specific customer profile fields that are missing, e.g. ['experience.similar_projects']",
+    )
+
+
+class ClassifyRulesRequest(BaseModel):
+    """POST /test/classify-rules request body."""
+    rules: List[Dict[str, Any]] = Field(
+        ..., description="List of extracted rules to classify"
+    )
+    customer_profile: Dict[str, Any] = Field(
+        ..., description="Structured customer profile from NestJS"
+    )
+
+
+class ClassifyRulesResponse(BaseModel):
+    """POST /test/classify-rules response."""
+    checkable_rules: List[CheckableRule] = Field(default_factory=list)
+    non_checkable_rules: List[NonCheckableRule] = Field(default_factory=list)
+
+
+# ── Evaluation Agent schemas ─────────────────────────────
+
+class PassedRule(BaseModel):
+    """A rule the customer passed."""
+    rule_id: str = Field(..., description="Rule identifier")
+    evidence: str = Field(..., description="Evidence from customer data supporting the pass")
+
+
+class FailedRule(BaseModel):
+    """A rule the customer failed."""
+    rule_id: str = Field(..., description="Rule identifier")
+    reason: str = Field(..., description="Why the rule was not met")
+    evidence: str = Field(..., description="Specific customer data that caused the failure")
+
+
+class EvaluateRulesRequest(BaseModel):
+    """POST /test/evaluate-rules request body."""
+    checkable_rules: List[Dict[str, Any]] = Field(
+        ..., description="List of checkable rules (output from classification)"
+    )
+    customer_profile: Dict[str, Any] = Field(
+        ..., description="Structured customer profile from NestJS"
+    )
+
+
+class EvaluateRulesResponse(BaseModel):
+    """POST /test/evaluate-rules response."""
+    passed: List[PassedRule] = Field(default_factory=list)
+    failed: List[FailedRule] = Field(default_factory=list)
+
+
+# ── Full Eligibility schemas ────────────────────────────
+
+class FullEligibilityRequest(BaseModel):
+    """POST /test/full-eligibility request body."""
+    rules: List[Dict[str, Any]] = Field(
+        ..., description="List of extracted rules"
+    )
+    customer_profile: Dict[str, Any] = Field(
+        ..., description="Structured customer profile from NestJS"
+    )
+
+
+class FullEligibilityResponse(BaseModel):
+    """POST /test/full-eligibility response."""
+    classification: ClassifyRulesResponse
+    evaluation: EvaluateRulesResponse
 

@@ -1,0 +1,285 @@
+"""
+Test / Debug router — direct agent invocations without RabbitMQ.
+
+All endpoints are prefixed with ``/test`` and exist purely for
+development-time verification via Swagger / Postman.
+"""
+
+from __future__ import annotations
+
+import tempfile
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, UploadFile, File
+
+from app.logging_cfg import logger
+from app.schemas import (
+    AnalyzeBidTestRequest,
+    ClassifyRulesRequest,
+    ClassifyRulesResponse,
+    EvaluateRulesRequest,
+    EvaluateRulesResponse,
+    ExtractRulesTestRequest,
+    FullEligibilityRequest,
+    FullEligibilityResponse,
+    TenderAnalysisResult,
+    TenderAnalysisEndpointResponse,
+    TenderExtractionResult,
+)
+
+_log = logger.getChild("test_routes")
+
+router = APIRouter(prefix="/test", tags=["Test / Debug"])
+
+
+# ────────────────────────────────────────────────────────
+# 1. Rule Extraction (existing agent)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/extract-rules",
+    response_model=TenderExtractionResult,
+    summary="Test rule extraction agent",
+    description="Saves an uploaded PDF to a temp file and calls the existing rule extractor.",
+)
+async def test_extract_rules(file: UploadFile = File(...)):
+    """Call existing rule extraction agent directly (no queue)."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info("📥 /test/extract-rules — request received  job_id=%s  filename=%s", job_id, file.filename)
+
+    try:
+        from app.services.rule_extractor import extract_rules
+
+        # Write uploaded file to a temporary file
+        ext = Path(file.filename).suffix if file.filename else ".pdf"
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=ext, delete=False, mode="wb",
+        )
+        tmp.write(await file.read())
+        tmp.close()
+        tmp_path = Path(tmp.name)
+
+        _log.info(
+            "Agent start — extract_rules  job_id=%s  tmp_file=%s",
+            job_id,
+            tmp_path.name,
+        )
+        result = await extract_rules(tmp_path)
+
+        _log.info(
+            "Agent output — extract_rules  job_id=%s  rules=%d",
+            job_id,
+            len(result.rules),
+        )
+        return result
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/extract-rules FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ────────────────────────────────────────────────────────
+# 2. Bid Analysis (existing agent)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/analyze-bid",
+    response_model=TenderAnalysisEndpointResponse,
+    summary="Test bid analysis agent",
+    description="Saves an uploaded PDF to a temp file and calls the existing bid analyzer.",
+)
+async def test_analyze_bid(file: UploadFile = File(...)):
+    """Call existing bid analysis agent directly (no queue)."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info("📥 /test/analyze-bid — request received  job_id=%s  filename=%s", job_id, file.filename)
+
+    try:
+        from app.services.bid_analyzer import analyze_bid
+
+        # Write uploaded file to a temporary file
+        ext = Path(file.filename).suffix if file.filename else ".pdf"
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=ext, delete=False, mode="wb",
+        )
+        tmp.write(await file.read())
+        tmp.close()
+        tmp_path = Path(tmp.name)
+
+        _log.info(
+            "Agent start — analyze_bid  job_id=%s  tmp_file=%s",
+            job_id,
+            tmp_path.name,
+        )
+        result = await analyze_bid(tmp_path)
+
+        _log.info(
+            "Agent output — analyze_bid  job_id=%s  reqs=%d  risks=%d",
+            job_id,
+            len(result.tender_analysis.technical_requirements),
+            len(result.tender_analysis.risks),
+        )
+        return TenderAnalysisEndpointResponse(tender_analysis=result.tender_analysis)
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/analyze-bid FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ────────────────────────────────────────────────────────
+# 3. Rule Classification (new agent)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/classify-rules",
+    response_model=ClassifyRulesResponse,
+    summary="Test rule classification agent",
+    description="Classifies rules as checkable or non-checkable based on customer profile.",
+)
+async def test_classify_rules(body: ClassifyRulesRequest):
+    """Call classification agent directly (no queue)."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info(
+        "📥 /test/classify-rules — request received  job_id=%s  rules=%d",
+        job_id,
+        len(body.rules),
+    )
+
+    try:
+        from app.agents.classification_agent import classify_rules
+
+        _log.info("Agent start — classify_rules  job_id=%s", job_id)
+        result = await classify_rules(body.rules, body.customer_profile)
+
+        _log.info(
+            "Agent output — classify_rules  job_id=%s  checkable=%d  non_checkable=%d",
+            job_id,
+            len(result.checkable_rules),
+            len(result.non_checkable_rules),
+        )
+        return result
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/classify-rules FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ────────────────────────────────────────────────────────
+# 4. Rule Evaluation (new agent)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/evaluate-rules",
+    response_model=EvaluateRulesResponse,
+    summary="Test rule evaluation agent",
+    description="Evaluates checkable rules against customer profile data.",
+)
+async def test_evaluate_rules(body: EvaluateRulesRequest):
+    """Call evaluation agent directly (no queue)."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info(
+        "📥 /test/evaluate-rules — request received  job_id=%s  rules=%d",
+        job_id,
+        len(body.checkable_rules),
+    )
+
+    try:
+        from app.agents.evaluation_agent import evaluate_rules
+
+        _log.info("Agent start — evaluate_rules  job_id=%s", job_id)
+        result = await evaluate_rules(body.checkable_rules, body.customer_profile)
+
+        _log.info(
+            "Agent output — evaluate_rules  job_id=%s  passed=%d  failed=%d",
+            job_id,
+            len(result.passed),
+            len(result.failed),
+        )
+        return result
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/evaluate-rules FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ────────────────────────────────────────────────────────
+# 5. Full Eligibility (classification → evaluation)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/full-eligibility",
+    response_model=FullEligibilityResponse,
+    summary="Test full eligibility flow",
+    description="Chains classification then evaluation — no queues involved.",
+)
+async def test_full_eligibility(body: FullEligibilityRequest):
+    """Run full eligibility: classify → evaluate."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info(
+        "📥 /test/full-eligibility — request received  job_id=%s  rules=%d",
+        job_id,
+        len(body.rules),
+    )
+
+    try:
+        from app.agents.classification_agent import classify_rules
+        from app.agents.evaluation_agent import evaluate_rules
+
+        # ── Step 1: Classification ──────────────────────────────
+        _log.info("Full-eligibility step 1/2 — classify_rules  job_id=%s", job_id)
+        classification = await classify_rules(body.rules, body.customer_profile)
+        _log.info(
+            "Classification done — checkable=%d  non_checkable=%d  job_id=%s",
+            len(classification.checkable_rules),
+            len(classification.non_checkable_rules),
+            job_id,
+        )
+
+        # ── Step 2: Evaluation (only checkable rules) ───────────
+        checkable_dicts = [r.model_dump() for r in classification.checkable_rules]
+        _log.info(
+            "Full-eligibility step 2/2 — evaluate_rules  job_id=%s  rules=%d",
+            job_id,
+            len(checkable_dicts),
+        )
+        evaluation = await evaluate_rules(checkable_dicts, body.customer_profile)
+        _log.info(
+            "Evaluation done — passed=%d  failed=%d  job_id=%s",
+            len(evaluation.passed),
+            len(evaluation.failed),
+            job_id,
+        )
+
+        return FullEligibilityResponse(
+            classification=classification,
+            evaluation=evaluation,
+        )
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/full-eligibility FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
