@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     rabbitmq_analysis_jobs_queue: str = "tender_analysis_jobs"
     rabbitmq_analysis_results_queue: str = "tender_analysis_results"
 
+    # ── RabbitMQ (Classification Agent) ───────────────────
+    rabbitmq_classification_jobs_queue: str = "rule_classification_jobs"
+    rabbitmq_classification_results_queue: str = "rule_classification_results"
+
+    # ── RabbitMQ (Evaluation Agent) ───────────────────────
+    rabbitmq_evaluation_jobs_queue: str = "rule_evaluation_jobs"
+    rabbitmq_evaluation_results_queue: str = "rule_evaluation_results"
+
     # ── Upload limits ─────────────────────────────────
     max_file_size_mb: int = 50
 
