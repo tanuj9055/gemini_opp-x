@@ -94,6 +94,7 @@ async def extract_rules(tender_pdf_path: Path) -> TenderExtractionResult:
             data = {
                 "tender_id": "UNKNOWN",
                 "rules": data,
+                "risk": [],
                 "metadata": {},
                 "raw_ocr_text": None
             }
@@ -114,11 +115,17 @@ async def extract_rules(tender_pdf_path: Path) -> TenderExtractionResult:
                 f"{data.get('_parse_error')}"
             )
 
-        # ── Step 5: Validate through Pydantic schema ─────────────
+        # ── Step 5: Safe fallback handling ────────────────────
+        data["tender_id"] = data.get("tender_id") or "UNKNOWN"
+        data["rules"] = data.get("rules") or []
+        data["risk"] = data.get("risk") or []
+
         rules_captured = len(data.get("rules", []))
+        risk_captured = len(data.get("risk", []))
         _log.debug(
-            "[extract_rules] Validating response — rules_count=%d  keys=%s",
+            "[extract_rules] Validating response — rules_count=%d  risk_count=%d  keys=%s",
             rules_captured,
+            risk_captured,
             list(data.keys()),
         )
 
@@ -128,14 +135,19 @@ async def extract_rules(tender_pdf_path: Path) -> TenderExtractionResult:
         total_elapsed = time.perf_counter() - t0
         _log.info(
             "✅ Rule extraction COMPLETED — "
-            "tender_id=%s  rules=%d  elapsed=%.2fs  "
+            "tender_id=%s  rules=%d  risk=%d  elapsed=%.2fs  "
             "prompt_tokens=%s  completion_tokens=%s",
             result.tender_id,
             len(result.rules),
+            len(result.risk),
             total_elapsed,
             usage.get("prompt_tokens", "?"),
             usage.get("completion_tokens", "?"),
         )
+
+        # Debug logging: extracted counts
+        _log.debug("Extracted Rules: %d", len(result.rules))
+        _log.debug("Extracted Risks: %d", len(result.risk))
 
         # Log individual rules at DEBUG level for traceability
         for rule in result.rules:
@@ -149,6 +161,14 @@ async def extract_rules(tender_pdf_path: Path) -> TenderExtractionResult:
                 rule.unit,
                 rule.confidence,
                 rule.description[:80] if rule.description else "",
+            )
+
+        # Log individual risks at DEBUG level
+        for risk_item in result.risk:
+            _log.debug(
+                "  ⚠️ Risk: type=%s  desc=%s",
+                risk_item.type,
+                risk_item.description[:80] if risk_item.description else "",
             )
 
         return result

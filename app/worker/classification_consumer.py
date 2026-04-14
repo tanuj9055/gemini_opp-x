@@ -119,9 +119,11 @@ async def _on_classification_message(
         )
 
         # ── Validate required fields ─────────────────────────────
+        # rules can be empty for low-eligibility bids — do not throw
         if not rules:
-            raise ValueError(
-                f"Missing or empty 'rules' in classification job for tender_id={tender_id}"
+            _log.warning(
+                "⚠️ [%s] Empty 'rules' in classification job — low-eligibility bid, proceeding",
+                tender_id,
             )
         if not customer_profile:
             raise ValueError(

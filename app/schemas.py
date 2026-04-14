@@ -611,10 +611,16 @@ class ExtractedRule(BaseModel):
             return RuleOperator(mapped)
 
 
+class RiskRule(BaseModel):
+    """Categorized risk or policy/regulatory flags."""
+    type: str = Field(..., description="policy | regulatory | compliance")
+    description: str = Field(..., description="Human-readable risk description")
+
 class TenderExtractionResult(BaseModel):
     """Complete result of tender rule extraction (Agent 1 output)."""
-    tender_id: str = Field(..., description="Tender / Bid identifier")
+    tender_id: str = Field(default="UNKNOWN", description="Tender / Bid identifier")
     rules: List[ExtractedRule] = Field(default_factory=list, description="Extracted eligibility rules")
+    risk: List[RiskRule] = Field(default_factory=list, description="Extracted policy and risk rules")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Extraction metadata (title, dates, etc.)")
     raw_ocr_text: Optional[str] = Field(None, description="Full OCR text from tender PDF")
 
@@ -623,49 +629,35 @@ class TenderExtractionResult(BaseModel):
     def coerce_rules(cls, v):
         return v if v is not None else []
 
+    @field_validator("risk", mode="before")
+    @classmethod
+    def coerce_risk(cls, v):
+        return v if v is not None else []
+
     @field_validator("metadata", mode="before")
     @classmethod
     def coerce_metadata(cls, v):
         return v if v is not None else {}
 
+
+
 # ────────────────────────────────────────────────────────
 # Tender Analysis Result — Agent 2 (v1.0)
 # ────────────────────────────────────────────────────────
 
-class TechnicalRequirement(BaseModel):
-    id: str
-    requirement: str
-    type: str
+class SummaryPoint(BaseModel):
+    text: str
+    importance: str = Field(description="high | medium | low")
 
-class CommercialTerm(BaseModel):
-    id: str
-    type: str
-    value: Union[str, float]
-    unit: Optional[str] = None
-
-class ImportantDate(BaseModel):
-    event: str
-    date: str
-    raw_text: Optional[str] = None
-
-class EvaluationCriteriaItem(BaseModel):
-    type: str
-    value: str
-
-class ScopeOfWorkItem(BaseModel):
-    summary: str
-
-class RiskItem(BaseModel):
-    risk: str
-    severity: str
+class SummarySection(BaseModel):
+    title: str
+    type: str = Field(description="overview | requirements | commercial | dates | evaluation | scope | risk | other")
+    points: List[SummaryPoint] = Field(default_factory=list)
 
 class TenderAnalysisData(BaseModel):
-    technical_requirements: List[TechnicalRequirement] = Field(default_factory=list)
-    commercial_terms: List[CommercialTerm] = Field(default_factory=list)
-    important_dates: List[ImportantDate] = Field(default_factory=list)
-    evaluation_criteria: List[EvaluationCriteriaItem] = Field(default_factory=list)
-    scope_of_work: List[ScopeOfWorkItem] = Field(default_factory=list)
-    risks: List[RiskItem] = Field(default_factory=list)
+    summary: str = Field(default="")
+    highlights: List[str] = Field(default_factory=list)
+    sections: List[SummarySection] = Field(default_factory=list)
 
 class TenderAnalysisEndpointResponse(BaseModel):
     tender_analysis: TenderAnalysisData
@@ -704,39 +696,44 @@ class AnalyzeBidTestRequest(BaseModel):
 
 class CheckableRule(BaseModel):
     """A rule that CAN be evaluated against the customer profile."""
+    
     id: str = Field(..., description="Rule identifier, e.g. 'rule_1'")
     text: str = Field(..., description="Human-readable rule text")
+    
     used_fields: List[str] = Field(
         default_factory=list,
-        description="Customer profile fields used to check this rule, e.g. ['financials.turnover_last_3_years']",
+        description="Customer profile fields used to check this rule",
     )
 
 
 class NonCheckableRule(BaseModel):
-    """A rule that CANNOT be evaluated due to missing customer data."""
-    id: str = Field(..., description="Rule identifier")
-    text: str = Field(..., description="Human-readable rule text")
-    missing_fields: List[str] = Field(
-        default_factory=list,
-        description="Specific customer profile fields that are missing, e.g. ['experience.similar_projects']",
+    id: str = Field(...)
+    text: str = Field(...)
+    missing_fields: List[str] = Field(...)
+    how_to_make_checkable: str = Field(
+        default="Provide required information manually or upload supporting documents",
+        description="Instructions for the user"
     )
 
 
 class ClassifyRulesRequest(BaseModel):
     """POST /test/classify-rules request body."""
+    
     rules: List[Dict[str, Any]] = Field(
         ..., description="List of extracted rules to classify"
     )
-    customer_profile: Dict[str, Any] = Field(
-        ..., description="Structured customer profile from NestJS"
+    
+    # ✅ FIX: Accept both dict and list
+    customer_profile: Union[Dict[str, Any], List[Any]] = Field(
+        ..., description="Structured customer profile (dict or list)"
     )
 
 
 class ClassifyRulesResponse(BaseModel):
     """POST /test/classify-rules response."""
+    
     checkable_rules: List[CheckableRule] = Field(default_factory=list)
     non_checkable_rules: List[NonCheckableRule] = Field(default_factory=list)
-
 
 # ── Evaluation Agent schemas ─────────────────────────────
 
@@ -758,8 +755,10 @@ class EvaluateRulesRequest(BaseModel):
     checkable_rules: List[Dict[str, Any]] = Field(
         ..., description="List of checkable rules (output from classification)"
     )
-    customer_profile: Dict[str, Any] = Field(
-        ..., description="Structured customer profile from NestJS"
+    
+    # ✅ FIXED: Changed to Union to accept both dict and list arrays
+    customer_profile: Union[Dict[str, Any], List[Any]] = Field(
+        ..., description="Structured customer profile from NestJS (dict or list)"
     )
 
 
@@ -768,7 +767,6 @@ class EvaluateRulesResponse(BaseModel):
     passed: List[PassedRule] = Field(default_factory=list)
     failed: List[FailedRule] = Field(default_factory=list)
 
-
 # ── Full Eligibility schemas ────────────────────────────
 
 class FullEligibilityRequest(BaseModel):
@@ -776,8 +774,8 @@ class FullEligibilityRequest(BaseModel):
     rules: List[Dict[str, Any]] = Field(
         ..., description="List of extracted rules"
     )
-    customer_profile: Dict[str, Any] = Field(
-        ..., description="Structured customer profile from NestJS"
+    customer_profile: Union[Dict[str, Any], List[Any]] = Field(
+        ..., description="Structured customer profile from NestJS (can be Dict or List)"
     )
 
 

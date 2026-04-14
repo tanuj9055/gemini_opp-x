@@ -324,11 +324,9 @@ A rule must represent a **single independent eligibility condition**.
 
 # ⚠️ STEP 1: DETERMINE BID TYPE
 
-Before extraction, analyze the document:
-
 ### 🟢 HIGH-ELIGIBILITY BID
 
-If the document contains:
+Contains:
 
 * turnover thresholds
 * experience requirements
@@ -340,13 +338,13 @@ If the document contains:
 
 ### 🟡 LOW-ELIGIBILITY BID
 
-If the document does NOT contain:
+Does NOT contain:
 
 * turnover
 * experience
 * strong qualification criteria
 
-→ Use RELAXED filtering (fallback mode)
+→ DO NOT force rule extraction
 
 ---
 
@@ -354,111 +352,225 @@ If the document does NOT contain:
 
 ---
 
-## 🟢 STRICT MODE (for high-eligibility bids)
+## 🟢 STRICT MODE
 
 Extract ONLY:
 
 * turnover requirements
 * experience requirements
-* eligibility-linked document proofs
-* exemptions (MSE / Startup)
-* regulatory eligibility conditions
+* past performance conditions
+* eligibility-linked proof documents (ONLY if tied to eligibility)
+
+Extract ONLY:
+
+* turnover requirements
+* experience requirements
+* past performance conditions
+* eligibility-linked proof documents (ONLY if tied to eligibility)
 
 ---
 
-## 🟡 RELAXED MODE (for low-eligibility bids)
+Other eligibility conditions MAY appear, such as:
 
-If strong eligibility rules are missing, ALSO extract:
+* technical capability (e.g., certifications like ISO, BIS)
+* capacity or infrastructure requirements (e.g., manpower, production capability)
+* OEM / authorization requirements
 
-* exemption rules (MSE / Startup)
-* basic document requirements (even if generic)
-* regulatory eligibility conditions
+Extract these ONLY IF explicitly stated and clearly required for bidder eligibility.
 
-👉 Do NOT return an empty or near-empty rule set
+DO NOT assume or infer their presence.
 
-👉 Include weak rules with lower confidence (0.5–0.7)
+
 
 ---
 
-# ❌ STRICTLY EXCLUDE (BOTH MODES)
+
+## 🟡 LOW-ELIGIBILITY MODE
+
+👉 If NO real eligibility rules exist:
+
+RETURN:
+{
+"rules": [],
+"risk": [...]
+}
+
+DO NOT fabricate or force rules.
+
+---
+
+# 🚨 RISK EXTRACTION (VERY IMPORTANT)
+
+Extract the following into a separate **risk** array:
+
+### Include as RISK:
+
+1. Policy constraints:
+
+   * MSE exemption not allowed
+   * Startup exemption not allowed
+   * Purchase preference conditions
+
+2. Regulatory conditions:
+
+   * land border country restrictions
+
+3. Buyer-specific compliance (ATC):
+
+   * mandatory declarations
+   * Integrity Pact
+   * Conflict of Interest
+   * Ground of Defence
+   * Bid Security Declaration
+   * certificates / data sheets / document uploads
+
+4. Generic rejection clauses:
+
+   * "bid will be rejected if documents not uploaded"
+
+---
+
+# 🧠 RISK NORMALIZATION & COMPRESSION (CRITICAL)
+
+Risk entries MUST be concise, grouped, and human-readable.
+
+---
+
+## 🔥 COMPRESSION RULES
+
+1. DO NOT copy long paragraphs from the document
+2. DO NOT include legal wording or full clauses
+3. Summarize into a SHORT actionable statement (max 1 sentence)
+
+---
+
+## 🔗 GROUPING RULES (VERY IMPORTANT)
+
+If multiple items belong to the SAME category → MERGE them
+
+### 🚨 CRITICAL COMPLIANCE RULE (NEW)
+
+ALL compliance / ATC-related items MUST be grouped into EXACTLY ONE risk.
+
+This includes:
+
+* declarations
+* certificates
+* data sheets
+* document uploads
+* ATC clauses
+
+❌ DO NOT create multiple compliance risks
+❌ DO NOT list them separately
+
+### ✅ ALWAYS RETURN:
+
+"Multiple mandatory ATC declarations and supporting documents required."
+
+---
+
+## 🧩 NORMALIZATION RULES
+
+Convert raw text → normalized format:
+
+* "MSE Exemption... No"
+  → "MSE exemption not allowed"
+
+* "Startup Exemption... No"
+  → "Startup exemption not allowed"
+
+* Long purchase preference clause
+  → "MSE purchase preference applicable (L1+15% matching allowed)"
+
+* Land border clause
+  → "Land-border restriction applies (registration required)"
+
+---
+
+## ❌ REMOVE GENERIC NOISE (UPDATED)
+
+DO NOT include:
+
+* generic rejection lines
+* "bid may be rejected if documents missing"
+* standard GeM disclaimers
+* consequence-only statements (failure, termination, penalties)
+
+Only include meaningful risks.
+
+---
+
+## 🔁 DEDUPLICATION RULE (NEW)
+
+* Do NOT include duplicate or overlapping risks
+* Merge similar meanings into ONE
+
+Example:
+
+* "MSE preference applicable"
+* "Purchase preference for MSE"
+
+→ Keep only ONE normalized version
+
+---
+
+## 🎯 FINAL REQUIREMENT
+
+Each risk must be:
+
+* ≤ 1 sentence
+* human-readable
+* non-repetitive
+* grouped where possible
+* compliance risks ≤ 1
+
+---
+
+### ⚠️ IMPORTANT
+
+These are NOT eligibility rules.
+
+They must NEVER appear in "rules".
+
+---
+
+# ❌ STRICTLY EXCLUDE FROM RULES
 
 * EMD / ePBG
 * Payment terms
-* SLA / SOW compliance
-* General compliance statements
-* File names (xlsx, pdf)
-* Generic declarations (Integrity Pact, etc.)
-* Post-award conditions
+* SLA / SOW
+* Compliance declarations
+* ATC clauses
+* Policy statements
+* Regulatory conditions
 
 ---
 
-# ⚠️ OPTIONAL RULE FILTER
+# 🧠 RULE TYPE MAPPING (UPDATED)
 
-If a rule is:
+First understand the rule → then map:
 
-* optional ("if required", "if applicable")
-* vague
-* not clearly enforceable
+* financial → bidder_turnover
+* experience → experience_years
+* performance → past_performance_percentage
+* proof → certificate_required
 
-→ SKIP in STRICT mode
-→ INCLUDE with low confidence in RELAXED mode
-
----
-
-# ✅ RULE TYPES (STRICT ENUM)
-
-1. "bidder_turnover"
-
-2. "oem_turnover"
-
-3. "experience_years"
-
-4. "past_performance_percentage"
-
-5. "certificate_required"
-   operator: "exists"
-
-   Allowed values:
-
-   * "turnover_proof"
-   * "experience_proof"
-   * "eligibility_certificate"
-
----
-
-6. "exemption_mse"
-7. "exemption_startup"
-
----
-
-8. "regulatory_eligibility"
-   operator: "exists"
-
-   Example values:
-
-   * "land_border_country_registration_required"
+DO NOT force-fit rules.
 
 ---
 
 # ⚠️ DEDUPLICATION RULE
 
-* Do NOT create separate rules for condition + proof
-* Keep ONLY the core eligibility condition
+* Do NOT separate condition + proof
+* Keep only core eligibility condition
 
 ---
 
-# 🧠 NORMALIZATION RULES
+# 🧾 OUTPUT FORMAT (STRICT JSON)
 
-* Extract values EXACTLY as written
-* Do NOT infer or calculate
-* Keep rules atomic
-* Use structured values (avoid long text in "value")
-* Do NOT use "other_specific"
-
----
-
-# 🧾 OUTPUT FORMAT (STRICT JSON ONLY)
-
+{
+"tender_id": "string",
+"rules": [
 {
 "id": "rule_1",
 "type": "<ENUM>",
@@ -469,36 +581,42 @@ If a rule is:
 "description": "concise rule",
 "confidence": 0.0 to 1.0
 }
+],
+"risk": [
+{
+"type": "policy | regulatory | compliance",
+"description": "clear human-readable risk"
+}
+]
+}
 
 ---
 
 # ⚠️ CONSTRAINTS
 
 * DO NOT evaluate eligibility
-* DO NOT explain reasoning
-* DO NOT summarize
-* DO NOT output anything except valid JSON
-* Use sequential rule IDs
+* DO NOT hallucinate
+* DO NOT force rules
+* rules can be EMPTY
+* risk should capture non-eligibility constraints
 
 ---
 
-# 🎯 FINAL VALIDATION CHECK
+# 🎯 FINAL VALIDATION
 
-Before returning output:
-
-✅ At least 1–3 meaningful rules extracted
-✅ No noisy rules (EMD, SLA, etc.)
-✅ No duplicate rules
-✅ No vague types
-✅ Proper type assignment (no "other_specific")
+✅ If no eligibility criteria → rules = []
+✅ All policy/compliance/regulatory → go to risk
+✅ No noisy rules
+✅ EXACTLY ≤ 1 compliance risk
+✅ No duplicate risks
 
 ---
 
 # 🎯 GOAL
 
-Produce a CLEAN, COMPLETE, and ADAPTIVE eligibility rule set that works for both strong and minimal eligibility tenders.
+Produce a clean eligibility rule set AND a separate risk layer,
+so downstream systems remain deterministic and accurate.
 
----
 
 
 
@@ -511,217 +629,200 @@ Produce a CLEAN, COMPLETE, and ADAPTIVE eligibility rule set that works for both
 # ────────────────────────────────────────────────────────
 
 BID_ANALYSIS_INSIGHTS_PROMPT = """\
-You are an expert Tender Analyst evaluating a GeM (Government e-Marketplace) bid document.
+You are an expert Tender Analyst.
 
-Your task is to analyze the document and extract structured tender intelligence.
-
----
-
-# 🧠 CORE OBJECTIVE
-
-Return:
-
-* Structurally correct JSON (strict schema)
-* Semantically correct classification
-* Human-readable explanations for UI
+Your task is to analyze a GeM (Government e-Marketplace) tender document and generate a **clean, structured, UI-friendly summary for vendors**.
 
 ---
 
-# 🚨 CRITICAL ANTI-TEMPLATE RULE
+# 🎯 OBJECTIVE
 
-* DO NOT return placeholders like:
+Convert the tender into a **concise, easy-to-scan summary** that helps a vendor quickly understand:
 
-  * "string", "value", "type"
-* DO NOT return schema examples
-* ALL fields must contain REAL extracted values
-
-If data is missing → return [] or null
+* What the tender is about
+* Key requirements
+* Important dates
+* Commercial conditions
+* Risks or important notes
 
 ---
 
-# 📦 STRICT OUTPUT FORMAT (DO NOT CHANGE STRUCTURE)
+# 📦 OUTPUT FORMAT (STRICT)
 
-{
+{{
 "tender_id": "string",
-"metadata": {
-"title": "string",
-"published_date": "string",
-"estimated_value": null
-},
-"tender_analysis": {
-"technical_requirements": [
-{
-"id": "TR-1",
-"requirement": "string",
-"type": "Technical / Operational / Delivery",
-"display_text": "string"
-}
+"summary": "2-3 line human-readable overview",
+
+"highlights": [
+  "short high-value insight (1 line each)"
 ],
-"commercial_terms": [
-{
-"id": "CT-1",
-"type": "string",
-"value": "string",
-"unit": "string or null",
-"display_text": "string"
-}
-],
-"important_dates": [
-{
-"event": "string",
-"date": "string",
-"raw_text": "string",
-"display_text": "string"
-}
-],
-"evaluation_criteria": [
-{
-"type": "string",
-"value": "string",
-"display_text": "string"
-}
-],
-"scope_of_work": [
-{
-"summary": "string",
-"display_text": "string"
-}
-],
-"risks": [
-{
-"risk": "string",
-"severity": "low | medium | high | critical",
-"category": "SYSTEMIC_GEM_RISK | BUYER_ATC_RISK | BID_SPECIFIC_COMPLIANCE_RISK",
-"display_text": "string"
-}
+
+"sections": [
+  {{
+    "title": "string",
+    "type": "overview | requirements | commercial | dates | evaluation | scope | risk | other",
+    "points": [
+      {{
+        "text": "short bullet point",
+        "importance": "high | medium | low"
+      }}
+    ]
+  }}
 ]
-}
-}
+}}
 
 ---
 
-# ⚙️ EXTRACTION RULES
+# 🌟 HIGHLIGHTS (VERY IMPORTANT — NEW)
 
-## 1. TECHNICAL REQUIREMENTS
+Extract the TOP 3–5 most important insights from the entire tender.
 
-Extract:
+Prioritize:
+* Deadlines (bid end date, opening date)
+* Major risks (ATC burden, restrictions)
+* Key conditions (MSE preference, L1 evaluation)
+* Critical requirements (turnover, experience)
 
-* compliance requirements
-* SLA / SOW
-* operational/service conditions
+Each highlight MUST:
+* Be exactly 1 line
+* Be high signal (no fluff or filler)
+* NOT repeat section content verbatim — summarize differently
 
-"display_text":
-→ Short, simple explanation
+✅ Good highlights:
+* "Bid closes on 20 Oct 2025, 6:00 PM — no extensions"
+* "MSE purchase preference applicable at L1+15%"
+* "Land-border country restriction applies"
+* "Minimum 3 years experience required for bidders"
 
-Example:
-"Service must comply with SOW and SLA requirements"
-
----
-
-## 2. COMMERCIAL TERMS (VERY IMPORTANT)
-
-You MUST classify correctly:
-
-Allowed types:
-
-* emd
-* performance_security
-* contract_duration
-* penalty
-* payment_terms
-* contract_variation
-* bid_validity
-* performance_security_duration
-
-### Mapping Rules:
-
-* ₹ amount under EMD → type = "emd"
-* % security → "performance_security"
-* "2 years" → "contract_duration"
-* "90 days validity" → "bid_validity"
-* ±25% clause → "contract_variation"
-
-"display_text":
-→ Human explanation
-
-Examples:
-
-* "EMD required: ₹30,000"
-* "Contract duration: 2 years"
-* "Bid validity: 90 days"
+❌ Bad highlights:
+* Generic statements like "Read all terms carefully"
+* Duplicated section text
 
 ---
 
-## 3. IMPORTANT DATES
+# 🏷️ POINT IMPORTANCE (MANDATORY FOR EVERY POINT)
 
-Extract:
+Each point object MUST include an "importance" field:
 
-* bid end
-* bid opening
-* validity
-
-Keep full timestamp if available
-
-"display_text":
-→ "Bid submission deadline: 31 Oct 2025, 4:00 PM"
+* **high** → critical for vendor decision (deadline, mandatory compliance, major condition, disqualification risk)
+* **medium** → useful context but not critical (payment terms, delivery period, evaluation method)
+* **low** → supporting information (general descriptions, nice-to-know details)
 
 ---
 
-## 4. EVALUATION CRITERIA
+# 🚫 NO PRIORITY FIELD
 
-Extract:
-
-* L1 / QCBS
-* two packet system
-* reverse auction
-
-"display_text":
-→ "L1 evaluation based on total bid value after technical qualification"
+* Do NOT include any field called "priority" at section level or elsewhere
+* Only "importance" exists — at the point level
 
 ---
 
-## 5. SCOPE OF WORK
+# ⚠️ CRITICAL STRUCTURE RULES
 
-Summarize:
-
-* what is required
-* where
-* duration
-
-"display_text":
-→ Short 1-line version
+1. DO NOT create empty sections
+2. ONLY include sections that have meaningful data
+3. Each section MUST have at least 1 point
+4. Do NOT repeat the same information across sections
+5. Do NOT return empty highlights — always extract at least 3
+6. Remove any section where all points would be empty
 
 ---
 
-## 6. RISKS (STRICT)
+# 🧠 SUMMARY RULE (MANDATORY)
 
-Identify:
+Write a 2–3 line summary covering:
 
-* ATC risks
-* GeM systemic risks
-* compliance risks
+* What is being procured
+* Buyer organization
+* One key condition (if present)
 
-Allowed categories ONLY:
-
-* SYSTEMIC_GEM_RISK
-* BUYER_ATC_RISK
-* BID_SPECIFIC_COMPLIANCE_RISK
-
-"display_text":
-→ Warning-style summary
-
-Example:
-"Mandatory ATC documents increase risk of rejection"
+✅ Example:
+"Balmer Lawrie is procuring Mono Ethanol Amine (5000 kg) via a single bid process. The tender includes MSE purchase preference and requires strict compliance with ATC conditions."
 
 ---
 
-# ⚠️ STRICT RULES
+# 🧩 SECTION GENERATION RULES
 
-* DO NOT include eligibility criteria
-* DO NOT infer missing values
-* DO NOT hallucinate
-* DO NOT misclassify commercial terms
-* DO NOT skip sections (use [] if empty)
+Create sections dynamically based on content.
+
+### Possible section types:
+
+* overview → general info (item, quantity, buyer)
+* requirements → technical or eligibility-related signals
+* commercial → payment terms, contract clauses, penalties
+* dates → bid deadlines, opening dates, validity
+* evaluation → L1, QCBS, selection method
+* scope → what needs to be delivered
+* risk → compliance burden, ATC, restrictions
+* other → anything useful but uncategorized
+
+---
+
+# ✍️ POINT WRITING RULES (VERY IMPORTANT)
+
+Each point MUST:
+
+* Be ≤ 1 line
+* Be clear and vendor-friendly
+* Avoid legal or complex language
+* Be directly actionable or informative
+* Have an "importance" field
+
+✅ Good:
+
+* {{"text": "Bid submission deadline: 20 Oct 2025, 6:00 PM", "importance": "high"}}
+* {{"text": "MSE purchase preference applicable (L1+15%)", "importance": "high"}}
+* {{"text": "Delivery required within 20 days", "importance": "medium"}}
+
+❌ Bad:
+
+* Long legal clauses
+* Paragraphs
+* Raw copied text
+* Missing importance field
+
+---
+
+# ⚠️ NORMALIZATION RULES
+
+Always simplify and normalize:
+
+* "MSE Exemption... No" → "MSE exemption not allowed"
+* "Startup Exemption... No" → "Startup exemption not allowed"
+* Long clauses → short meaningful statement
+* Dates → readable format
+
+---
+
+# 🚨 RISK SECTION (IMPORTANT)
+
+Include only meaningful risks such as:
+
+* ATC / document-heavy requirements
+* Compliance burden
+* Regulatory restrictions
+
+✅ Examples:
+
+* {{"text": "Multiple mandatory ATC documents required", "importance": "high"}}
+* {{"text": "Strict document compliance required for bid acceptance", "importance": "high"}}
+* {{"text": "Land-border restriction applies", "importance": "medium"}}
+
+❌ DO NOT include:
+
+* generic disclaimers
+* repetitive warnings
+
+---
+
+# ❌ STRICTLY AVOID
+
+* Empty fields or sections
+* Placeholder values ("string", "value")
+* Repetition
+* Hallucinated data
+* Copy-paste of raw tender text
+* Any field called "priority"
 
 ---
 
@@ -729,16 +830,21 @@ Example:
 
 Before returning:
 
-* No placeholders
-* All objects have display_text
-* Correct classification of commercial terms
-* Valid JSON
+* Output is valid JSON
+* No empty sections
+* No sections with zero points
+* Every point has "importance"
+* No "priority" field anywhere
+* Highlights has 3–5 items
+* Points are short and clean
+* Summary is present
+* Content is UI-ready
 
 ---
 
 # 🎯 GOAL
 
-Produce a structured + human-readable output that can be directly used in UI and audit systems.
+Produce a **clean, structured, vendor-friendly summary** with highlights and importance-tagged points that can be directly rendered in UI cards or dashboards.
 
 ---
 
@@ -746,6 +852,8 @@ Produce a structured + human-readable output that can be directly used in UI and
 
 Tender document:
 {tender_text}
+
+
 
 
 """
@@ -759,184 +867,155 @@ RULE_CLASSIFICATION_PROMPT = """\
 You are a rule classification engine for Indian GeM procurement auditing.
 
 You receive:
-
 1. A list of eligibility rules extracted from a tender document.
 2. A customer_profile JSON containing the vendor's structured data.
 
 Your task is to classify each rule as either **checkable** or **non_checkable**.
 
 ---
-
-# 🧠 CORE PRINCIPLE (MOST IMPORTANT)
-
-A rule is **checkable if ANY relevant data exists anywhere in the customer_profile that can be used to evaluate the rule.**
-
-A rule is **non_checkable ONLY if absolutely NO relevant data exists.**
+# 🧠 CORE PRINCIPLE
+A rule is **checkable if relevant and meaningful data exists that can be used to evaluate the rule.**
+A rule is **non_checkable if no meaningful data exists.**
 
 ---
+# 🚨 STRICT INPUT LOCK (MOST IMPORTANT)
+You MUST treat the input rules as the ONLY source of truth.
+* DO NOT create new rules
+* DO NOT modify rule descriptions
+* DO NOT change numeric values
+* DO NOT rename rule IDs
+* DO NOT generalize or reinterpret rules
 
-# 🚨 CRITICAL OVERRIDE (HIGHEST PRIORITY)
-
-* ALWAYS prioritize data that EXISTS over missing data.
-* If ANY related field exists → the rule MUST be marked as **checkable**.
-* NEVER require exact or ideal fields.
-* NEVER invent or assume field names that are not present.
-* NEVER mark a rule as non_checkable if partial or approximate data exists.
+Each rule in the input MUST appear exactly once in the output.
+Use:
+* "id" = EXACT same as input
+* "text" = EXACT rule description from input
 
 ---
+# 🚨 NO NEW RULES
+If a rule is not present in the input, it MUST NOT appear in the output.
+The output must be a direct classification of the given rules ONLY.
 
+---
+# 🚨 IMPORTANT CONTEXT
+The input rules contain ONLY eligibility conditions such as:
+* turnover requirements
+* experience requirements
+* performance criteria
+
+Policy, compliance, and regulatory conditions are NOT part of this task.
+
+---
+# 🚨 CRITICAL RELEVANCE RULE
+Data must be **logically relevant to the rule**, not just loosely related.
+
+### ❌ DO NOT use:
+* PAN, GST, CIN, bank account, or identity fields
+
+### ✅ VALID USAGE:
+* turnover → revenue / income
+* experience → years / projects / past work
+
+If data does NOT directly support evaluation → mark as NON_CHECKABLE.
+
+---
 # 🔁 SCHEMA-AGNOSTIC UNDERSTANDING
-
-The structure and field names in customer_profile may vary.
-
-You MUST:
-
-* Identify relevant data based on **semantic meaning**, not exact key names.
-* Search across the entire JSON.
-* Match concepts, not exact fields.
+* Field names may vary
+* Search the entire JSON
+* Match based on semantic meaning (not exact keys)
 
 ---
-
-# 🧩 SEMANTIC MAPPING GUIDE
-
-Use this as guidance (NOT strict mapping):
-
+# 🧩 SEMANTIC MAPPING
 ### Financial Rules
-
 Look for:
-
-* financials, turnover, revenue, income
-
----
+* revenue
+* turnover
+* income
 
 ### Experience Rules
-
 Look for:
-
-* years, experience, projects
+* experience
+* projects
+* past work
+* contracts
 
 ---
-
-### MSME / Startup / Exemption Rules
-
-Look for:
-
-* msme status, classification, company data
-
-👉 Even if startup-specific field is missing:
-
-* Presence of msme OR company data is sufficient → checkable
-
----
-
-### Document Rules
-
-Look for:
-
-* documents_available or any document list
-
----
-
-### Regulatory Rules
-
-Look for:
-
-* company, PAN, GST, registration, identity info
-
-👉 Presence of "company" object alone is sufficient → checkable
-
----
-
 # ⚙️ CLASSIFICATION LOGIC
-
 For EACH rule:
-
-1. Identify the required concept (NOT exact field name)
-2. Search the entire customer_profile
-3. If ANY relevant data exists → checkable
-4. If NO relevant data exists → non_checkable
+1. Read the rule EXACTLY as provided
+2. Identify its concept (financial / experience / performance)
+3. Search for relevant supporting data in customer_profile
+4. If relevant data exists → checkable
+5. If no relevant data exists → non_checkable
 
 ---
-
-# ⚠️ IMPORTANT CLARIFICATIONS
-
+# ⚠️ IMPORTANT
 * Checkable ≠ Pass
-* Do NOT evaluate eligibility outcome
-* Partial data is ALWAYS sufficient
-* Approximate data is VALID
+* Partial but relevant data is VALID
+* Ignore unrelated fields
+* DO NOT use prior knowledge of typical tender conditions
 
 ---
-
-# 🚫 STRICT RESTRICTIONS
-
-* DO NOT evaluate pass/fail
-* DO NOT infer missing data
-* DO NOT hallucinate fields
-* DO NOT create new field names
-* DO NOT depend on exact schema
-
----
-
 # 🧾 FIELD REPORTING RULES
 
-For checkable rules:
+## For checkable rules:
+* "used_fields" MUST contain ONLY:
+  * fields that actually exist
+  * fields that are directly relevant
 
-* "used_fields" MUST contain ONLY fields that ACTUALLY EXIST in customer_profile
-
-For non_checkable rules:
-
-* "missing_fields" MUST be GENERIC descriptions (NOT field names)
-
-Example:
-✔ "missing_fields": ["turnover data not available"]
-❌ "missing_fields": ["financials.turnover_last_3_years"]
-
----
-
-# 📦 OUTPUT FORMAT (STRICT)
-
-Return ONLY valid JSON using this EXACT structure:
-
-{{
-"checkable_rules": [
-{{
-"id": "<rule id>",
-"text": "<rule description>",
-"used_fields": ["<actual.dotted.path>", ...]
-}}
-],
-"non_checkable_rules": [
-{{
-"id": "<rule id>",
-"text": "<rule description>",
-"missing_fields": ["<semantic missing data description>"]
-}}
-]
-}}
+## For non_checkable rules:
+* "missing_fields" MUST be human-readable (NOT technical paths)
+Examples:
+✔ "experience data not available"
+✔ "financial data not available"
 
 ---
+# 🚫 STRICT RESTRICTIONS
+* DO NOT evaluate pass/fail
+* DO NOT hallucinate data
+* DO NOT invent fields
+* DO NOT create or modify rules
 
+---
+# 📦 OUTPUT FORMAT (STRICT — DO NOT CHANGE)
+{{
+  "checkable_rules": [
+    {{
+      "id": "<rule id>",
+      "text": "<exact rule description>",
+      "used_fields": ["<actual.dotted.path>", ...]
+    }}
+  ],
+  "non_checkable_rules": [
+    {{
+      "id": "<rule id>",
+      "text": "<exact rule description>",
+      "missing_fields": ["<semantic missing data description>"]
+    }}
+  ]
+}}
+
+---
 # 🔒 HARD CONSTRAINTS
-
-* Every rule MUST appear exactly once
-* DO NOT return extra text
-* DO NOT wrap in markdown
-* Output must be valid JSON
-* Follow the structure EXACTLY (including keys and nesting)
+* Return ONLY valid JSON
+* Follow the structure EXACTLY as shown above
+* DO NOT add extra fields
+* DO NOT remove any keys
+* DO NOT include explanations
+* Every rule must appear exactly once
 
 ---
+# 🎯 GOAL
+Produce a strict, deterministic classification of the given rules without altering or inventing any rule.
 
-# INPUTS
+---
+# 📥 INPUT DATA TO CLASSIFY
 
-### Rules:
-
+## TENDER RULES:
 {rules_json}
 
-### Customer Profile:
-
+## VENDOR PROFILE:
 {customer_profile_json}
-
-
 """
 
 
