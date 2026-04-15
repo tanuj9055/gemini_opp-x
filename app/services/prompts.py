@@ -372,6 +372,15 @@ DO NOT extract:
 - declarations (undertakings, self-declarations, affidavits)
 - service capability expectations (telephone number, escalation matrix, support structure)
 
+- behavioral expectations (e.g., not under influence of alcohol, proper conduct)
+- safety instructions
+- workforce discipline requirements
+- general legal or contractual obligations
+
+These do NOT determine bidder eligibility and must NOT be included in "rules".
+
+If a condition cannot be verified through submitted documents or structured data, DO NOT extract it as a rule.
+
 These do NOT determine eligibility independently and must NOT be included in "rules".
 
 If a condition does NOT directly disqualify a bidder, DO NOT extract it as a rule.
