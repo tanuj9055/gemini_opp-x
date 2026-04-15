@@ -379,10 +379,6 @@ DO NOT extract:
 
 These do NOT determine bidder eligibility and must NOT be included in "rules".
 
-If a condition cannot be verified through submitted documents or structured data, DO NOT extract it as a rule.
-
-These do NOT determine eligibility independently and must NOT be included in "rules".
-
 If a condition does NOT directly disqualify a bidder, DO NOT extract it as a rule.
 
 Example:
@@ -406,6 +402,19 @@ Extract these ONLY IF:
 * AND clearly required to determine bidder eligibility  
 
 DO NOT assume, infer, or generalize these conditions.
+
+### 🚫 POLICY EXCLUSION RULE (VERY IMPORTANT)
+
+DO NOT extract rules related to policy, preference, or classification systems such as:
+
+- Make in India (MII) classification (Class 1 / Class 2 suppliers)
+- Local content percentage requirements
+- MSE / Startup purchase preference conditions
+- OEM requirements tied to purchase preference policies
+
+These conditions do NOT determine core bidder eligibility.
+
+They are policy or evaluation-related constraints and MUST be included in the "risk" section, NOT in "rules".
 
 
 
