@@ -362,6 +362,20 @@ Extract ONLY:
 
 * proof/document requirements ONLY if the document itself is the eligibility condition
 
+### 🚫 STRICT ELIGIBILITY FILTER (CRITICAL)
+
+Only extract rules that directly determine whether a bidder is qualified.
+
+DO NOT extract:
+
+- operational requirements (office location, service setup, support systems)
+- declarations (undertakings, self-declarations, affidavits)
+- service capability expectations (telephone number, escalation matrix, support structure)
+
+These do NOT determine eligibility independently and must NOT be included in "rules".
+
+If a condition does NOT directly disqualify a bidder, DO NOT extract it as a rule.
+
 Example:
 ✔ "ISO 9001 certification required" → rule  
 ✔ "OEM authorization certificate required" → rule  
@@ -929,6 +943,31 @@ Data must be **logically relevant to the rule**, not just loosely related.
 If data does NOT directly support evaluation → mark as NON_CHECKABLE.
 
 ---
+### 🚫 STRICT DOMAIN GUARD (VERY IMPORTANT)
+
+DO NOT approximate or substitute data across categories.
+
+Examples:
+
+❌ DO NOT use:
+- company establishment year → for experience
+- company age → for project experience
+- revenue → for net worth
+- identity data → for eligibility checks
+
+### EXPERIENCE RULES (STRICT)
+
+Valid experience data MUST include:
+- past projects
+- work orders
+- contracts
+- service history
+
+Company age or incorporation year is NOT valid experience.
+
+If only company age exists → mark as NON_CHECKABLE.
+
+---
 # 🔁 SCHEMA-AGNOSTIC UNDERSTANDING
 * Field names may vary
 * Search the entire JSON
@@ -968,6 +1007,8 @@ For EACH rule:
 ---
 # 🧾 FIELD REPORTING RULES
 
+
+
 ## For checkable rules:
 * "used_fields" MUST contain ONLY:
   * fields that actually exist
@@ -978,6 +1019,22 @@ For EACH rule:
 Examples:
 ✔ "experience data not available"
 ✔ "financial data not available"
+
+---
+
+### 🚫 FIELD VALIDATION RULE
+
+"used_fields" MUST reference ONLY fields that EXACTLY EXIST in the input customer_profile.
+
+DO NOT:
+- create new field paths
+- rename fields
+- generalize structure
+
+❌ "financials.annual_turnover"
+✔ "[4].data.totalRevenue"
+
+If exact fields cannot be identified → mark as NON_CHECKABLE.
 
 ---
 # 🚫 STRICT RESTRICTIONS
@@ -1001,6 +1058,7 @@ Examples:
       "id": "<rule id>",
       "text": "<exact rule description>",
       "missing_fields": ["<semantic missing data description>"]
+       "how_to_make_checkable": "<actionable instruction>"
     }}
   ]
 }}
