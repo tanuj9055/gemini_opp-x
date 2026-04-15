@@ -359,14 +359,15 @@ Extract ONLY:
 * turnover requirements
 * experience requirements
 * past performance conditions
-* eligibility-linked proof documents (ONLY if tied to eligibility)
 
-Extract ONLY:
+* proof/document requirements ONLY if the document itself is the eligibility condition
 
-* turnover requirements
-* experience requirements
-* past performance conditions
-* eligibility-linked proof documents (ONLY if tied to eligibility)
+Example:
+✔ "ISO 9001 certification required" → rule  
+✔ "OEM authorization certificate required" → rule  
+
+❌ "Upload documents for verification" → NOT a rule (goes to risk)  
+❌ "Documents required for eligibility proof" → NOT a rule (goes to risk)
 
 ---
 
@@ -376,9 +377,12 @@ Other eligibility conditions MAY appear, such as:
 * capacity or infrastructure requirements (e.g., manpower, production capability)
 * OEM / authorization requirements
 
-Extract these ONLY IF explicitly stated and clearly required for bidder eligibility.
+Extract these ONLY IF:
 
-DO NOT assume or infer their presence.
+* explicitly stated in the document  
+* AND clearly required to determine bidder eligibility  
+
+DO NOT assume, infer, or generalize these conditions.
 
 
 
@@ -640,10 +644,10 @@ Your task is to analyze a GeM (Government e-Marketplace) tender document and gen
 Convert the tender into a **concise, easy-to-scan summary** that helps a vendor quickly understand:
 
 * What the tender is about
-* Key requirements
+* Key eligibility requirements
 * Important dates
 * Commercial conditions
-* Risks or important notes
+* How the bid will be evaluated
 
 ---
 
@@ -654,197 +658,203 @@ Convert the tender into a **concise, easy-to-scan summary** that helps a vendor 
 "summary": "2-3 line human-readable overview",
 
 "highlights": [
-  "short high-value insight (1 line each)"
+"short high-value insight (1 line each)"
 ],
 
 "sections": [
-  {{
-    "title": "string",
-    "type": "overview | requirements | commercial | dates | evaluation | scope | risk | other",
-    "points": [
-      {{
-        "text": "short bullet point",
-        "importance": "high | medium | low"
-      }}
-    ]
-  }}
+{{
+"title": "string",
+"type": "overview | requirements | commercial | dates | evaluation | scope | other",
+"points": [
+{{
+"text": "short bullet point",
+"importance": "high | medium | low"
+}}
+]
+}}
 ]
 }}
 
 ---
 
-# 🌟 HIGHLIGHTS (VERY IMPORTANT — NEW)
+# 🌟 HIGHLIGHTS (VERY IMPORTANT)
 
-Extract the TOP 3–5 most important insights from the entire tender.
+Extract the TOP 3–5 most important insights.
 
 Prioritize:
-* Deadlines (bid end date, opening date)
-* Major risks (ATC burden, restrictions)
-* Key conditions (MSE preference, L1 evaluation)
-* Critical requirements (turnover, experience)
+
+* Deadlines
+* Key eligibility requirements (turnover, experience)
+* Evaluation method (L1, RA, QCBS)
+* Major conditions affecting participation
 
 Each highlight MUST:
+
 * Be exactly 1 line
-* Be high signal (no fluff or filler)
-* NOT repeat section content verbatim — summarize differently
-
-✅ Good highlights:
-* "Bid closes on 20 Oct 2025, 6:00 PM — no extensions"
-* "MSE purchase preference applicable at L1+15%"
-* "Land-border country restriction applies"
-* "Minimum 3 years experience required for bidders"
-
-❌ Bad highlights:
-* Generic statements like "Read all terms carefully"
-* Duplicated section text
+* Be high signal
+* NOT repeat section text verbatim
 
 ---
 
-# 🏷️ POINT IMPORTANCE (MANDATORY FOR EVERY POINT)
+# 🏷️ POINT IMPORTANCE
 
-Each point object MUST include an "importance" field:
+Each point MUST include:
 
-* **high** → critical for vendor decision (deadline, mandatory compliance, major condition, disqualification risk)
-* **medium** → useful context but not critical (payment terms, delivery period, evaluation method)
-* **low** → supporting information (general descriptions, nice-to-know details)
+* high → critical (deadline, eligibility, disqualification condition)
+* medium → useful (evaluation method, payment terms)
+* low → supporting info
 
 ---
 
 # 🚫 NO PRIORITY FIELD
 
-* Do NOT include any field called "priority" at section level or elsewhere
-* Only "importance" exists — at the point level
+Only "importance" is allowed.
 
 ---
 
 # ⚠️ CRITICAL STRUCTURE RULES
 
 1. DO NOT create empty sections
-2. ONLY include sections that have meaningful data
-3. Each section MUST have at least 1 point
-4. Do NOT repeat the same information across sections
-5. Do NOT return empty highlights — always extract at least 3
-6. Remove any section where all points would be empty
+2. ONLY include sections with real data
+3. No repetition across sections
+4. Minimum 3 highlights
 
 ---
 
-# 🧠 SUMMARY RULE (MANDATORY)
+# 🧠 SUMMARY RULE
 
-Write a 2–3 line summary covering:
+Write 2–3 lines including:
 
-* What is being procured
-* Buyer organization
-* One key condition (if present)
-
-✅ Example:
-"Balmer Lawrie is procuring Mono Ethanol Amine (5000 kg) via a single bid process. The tender includes MSE purchase preference and requires strict compliance with ATC conditions."
+* what is being procured
+* buyer organization
+* one key eligibility condition
 
 ---
 
-# 🧩 SECTION GENERATION RULES
+# 🧩 SECTION RULES (VERY IMPORTANT)
 
-Create sections dynamically based on content.
+## overview
 
-### Possible section types:
-
-* overview → general info (item, quantity, buyer)
-* requirements → technical or eligibility-related signals
-* commercial → payment terms, contract clauses, penalties
-* dates → bid deadlines, opening dates, validity
-* evaluation → L1, QCBS, selection method
-* scope → what needs to be delivered
-* risk → compliance burden, ATC, restrictions
-* other → anything useful but uncategorized
+General info (item, quantity, buyer)
 
 ---
 
-# ✍️ POINT WRITING RULES (VERY IMPORTANT)
+## requirements (CRITICAL)
 
-Each point MUST:
+Include ONLY eligibility criteria.
 
-* Be ≤ 1 line
-* Be clear and vendor-friendly
-* Avoid legal or complex language
-* Be directly actionable or informative
-* Have an "importance" field
+Examples:
 
-✅ Good:
+* turnover requirements
+* experience requirements
+* past performance
+* mandatory certifications (ISO, OEM authorization if eligibility-based)
 
-* {{"text": "Bid submission deadline: 20 Oct 2025, 6:00 PM", "importance": "high"}}
-* {{"text": "MSE purchase preference applicable (L1+15%)", "importance": "high"}}
-* {{"text": "Delivery required within 20 days", "importance": "medium"}}
+DO NOT include:
 
-❌ Bad:
-
-* Long legal clauses
-* Paragraphs
-* Raw copied text
-* Missing importance field
+* MSE / Startup policy
+* document submission requirements
+* ATC clauses
+* compliance requirements
 
 ---
 
-# ⚠️ NORMALIZATION RULES
+## commercial
 
-Always simplify and normalize:
+Include:
 
-* "MSE Exemption... No" → "MSE exemption not allowed"
-* "Startup Exemption... No" → "Startup exemption not allowed"
-* Long clauses → short meaningful statement
-* Dates → readable format
+* payment terms
+* contract duration
+* penalties
+* variation clauses
 
 ---
 
-# 🚨 RISK SECTION (IMPORTANT)
+## dates
 
-Include only meaningful risks such as:
+Include:
 
-* ATC / document-heavy requirements
-* Compliance burden
-* Regulatory restrictions
+* bid end date
+* bid opening date
+* validity
 
-✅ Examples:
+---
 
-* {{"text": "Multiple mandatory ATC documents required", "importance": "high"}}
-* {{"text": "Strict document compliance required for bid acceptance", "importance": "high"}}
-* {{"text": "Land-border restriction applies", "importance": "medium"}}
+## evaluation (CRITICAL)
 
-❌ DO NOT include:
+Include ONLY how the winner is selected AFTER eligibility.
 
-* generic disclaimers
-* repetitive warnings
+Examples:
+
+* L1 evaluation
+* QCBS
+* two packet system
+* reverse auction
+
+DO NOT include:
+
+* eligibility conditions (they belong to requirements)
+
+---
+
+## scope
+
+What needs to be delivered, where, and timeline.
+
+---
+
+## other
+
+Anything useful not fitting above.
+
+---
+
+# ✍️ POINT RULES
+
+Each point:
+
+* ≤ 1 line
+* simple language
+* no legal text
+* UI-friendly
+
+---
+
+# ⚠️ NORMALIZATION
+
+Always simplify:
+
+* Convert clauses → short statements
+* Format dates cleanly
+* Remove legal wording
 
 ---
 
 # ❌ STRICTLY AVOID
 
-* Empty fields or sections
-* Placeholder values ("string", "value")
-* Repetition
-* Hallucinated data
-* Copy-paste of raw tender text
-* Any field called "priority"
+* Risk extraction (handled by another agent)
+* Policy interpretation
+* Compliance/ATC extraction
+* Hallucination
+* Copy-paste text
 
 ---
 
 # 🔍 FINAL VALIDATION
 
-Before returning:
+Ensure:
 
-* Output is valid JSON
+* Valid JSON
 * No empty sections
-* No sections with zero points
-* Every point has "importance"
-* No "priority" field anywhere
-* Highlights has 3–5 items
-* Points are short and clean
-* Summary is present
-* Content is UI-ready
+* Clean UI text
+* No duplication
+* No risk section
 
 ---
 
 # 🎯 GOAL
 
-Produce a **clean, structured, vendor-friendly summary** with highlights and importance-tagged points that can be directly rendered in UI cards or dashboards.
+Produce a **clean vendor-facing summary focused only on eligibility, structure, and decision-making clarity**, without duplicating risk or compliance logic.
 
 ---
 
