@@ -39,9 +39,7 @@ router = APIRouter(tags=["Bid Submission Package"])
         "outputs along with vendor document filenames, and generates a complete "
         "bid submission package including AI-generated cover letter, compliance "
         "statements, and declarations.\n\n"
-        "**Prerequisite**: The vendor must have an APPROVE recommendation. "
-        "If the vendor is REJECTED, an immediate rejection response is returned "
-        "without any Gemini API calls."
+        "**Note**: By default, any vendor can generate a bid package."
     ),
     response_model_exclude_none=False,
 )

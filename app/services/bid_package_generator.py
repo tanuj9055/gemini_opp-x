@@ -2,11 +2,10 @@
 Bid Submission Package Generator — Smart Gap-Fill Logic.
 
 Core flow:
-  1. Eligibility gate (vendor must be APPROVE)
-  2. Extract REQUIRED documents from bid_analysis
-  3. Match vendor_documents against requirements → identify MISSING
-  4. Generate ONLY the missing generatable documents via Gemini
-  5. Assemble final package: existing + generated + flagged missing
+  1. Extract REQUIRED documents from bid_analysis
+  2. Match vendor_documents against requirements → identify MISSING
+  3. Generate ONLY the missing generatable documents via Gemini
+  4. Assemble final package: existing + generated + flagged missing
 
 ISOLATION: This service does NOT modify or depend on existing bid/vendor
 analysis pipelines. It consumes their outputs (JSON) as read-only inputs.
@@ -57,21 +56,9 @@ async def generate_bid_package(
     """
 
     # ── Step 1: Eligibility gate ─────────────────────
-    recommendation = (vendor_evaluation.recommendation or "").upper()
-    if recommendation not in ("APPROVE", "APPROVED"):
-        _log.info(
-            "Vendor not approved (recommendation=%s). Returning rejection.",
-            recommendation,
-        )
-        return BidSubmissionPackageResponse(
-            status="REJECTED",
-            message="Vendor not eligible for bid submission",
-            documents=[],
-            generated_sections=None,
-            gap_analysis=None,
-        )
-
-    _log.info("Vendor approved. Running gap analysis...")
+    # Eligibility check removed as per user request
+    # Every vendor can generate a document now
+    _log.info("Running gap analysis...")
 
     # ── Step 2: Extract required documents ───────────
     required = extract_required_documents(bid_analysis)
@@ -203,10 +190,9 @@ async def generate_bid_package_pdf(
 ) -> bytes:
     """Generate a fully assembled PDF of the bid submission package.
     
-    1. Returns a simple error JSON in bytes if REJECTED.
-    2. Runs gap-fill generation.
-    3. Renders generating sections to PDF.
-    4. Merges generated PDFs with provided vendor PDFs.
+    1. Runs gap-fill generation.
+    2. Renders generating sections to PDF.
+    3. Merges generated PDFs with provided vendor PDFs.
     """
     bid_id = bid_analysis.bid_id or "UNKNOWN"
     
