@@ -37,7 +37,7 @@ async def extract_rules_from_text(ocr_text: str, embedded_links_ocr: list) -> Te
         prompt = RULE_EXTRACTION_PROMPT.replace("{tender_text}", ocr_text)
         if embedded_links_ocr:
             links_text = "\n\n".join(
-                f"--- CONTENT FROM LINK: {link.sourceUrl} ---\n{link.ocrText}" 
+                f"--- CONTENT FROM LINK: {link.get('sourceUrl', 'Unknown')} ---\n{link.get('ocrText', '')}" 
                 for link in embedded_links_ocr
             )
             prompt += f"\n\nAdditional Content from Embedded Links:\n{links_text}\n"
