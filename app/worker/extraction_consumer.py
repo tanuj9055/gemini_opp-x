@@ -15,7 +15,10 @@ Message contract (inbound)
 
     {
       "tender_id": "8481457",
-      "tender_document_url": "s3://bucket/path/tender.pdf"
+      "job_id": "...",
+      "customer_id": "...",
+      "bidOcr": "Text of the tender...",
+      "embeddedLinkOcr": [{"link": "url", "context": "text"}]
     }
 
 Result contract (outbound)
@@ -54,8 +57,7 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.config import get_settings
 from app.logging_cfg import logger
-from app.services.rule_extractor import extract_rules
-from app.services.s3_client import download_file
+from app.services.rule_extractor import extract_rules_from_text
 
 _log = logger.getChild("extraction_worker")
 
@@ -101,47 +103,24 @@ async def _on_extraction_message(
         tender_id = body.get("tender_id", "UNKNOWN")
         job_id = body.get("job_id", "UNKNOWN")
         customer_id = body.get("customer_id", "UNKNOWN")
-        tender_document_url = body.get("tender_document_url", "")
+        bid_ocr = body.get("bidOcr", "")
+        embedded_link_ocr = body.get("embeddedLinkOcr", [])
 
         _log.info(
-            "📥 Extraction job received — job_id=%s tender_id=%s customer_id=%s url=%s",
-            job_id, tender_id, customer_id,
-            tender_document_url[:120] if tender_document_url else "(empty)",
+            "📥 Extraction job received — job_id=%s tender_id=%s customer_id=%s OCR_length=%d",
+            job_id, tender_id, customer_id, len(bid_ocr)
         )
 
         # ── Validate required fields ─────────────────────────────
-        if not tender_document_url:
+        if not bid_ocr:
             raise ValueError(
-                f"Missing 'tender_document_url' in extraction job for tender_id={tender_id}"
+                f"Missing 'bidOcr' in extraction job for tender_id={tender_id}"
             )
-
-        # ── Download tender PDF ──────────────────────────────────
-        safe_tender_id = tender_id.replace("/", "_").replace("\\", "_")
-        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_extract_{safe_tender_id}_"))
-        _log.debug(
-            "[%s] Downloading tender PDF to temp dir: %s",
-            tender_id, tmp_dir,
-        )
-
-        try:
-            pdf_path = await download_file(tender_document_url, tmp_dir)
-            _log.info(
-                "[%s] Tender PDF downloaded — path=%s  size=%.1f KB",
-                tender_id,
-                pdf_path.name,
-                pdf_path.stat().st_size / 1024,
-            )
-        except Exception as exc:
-            _log.error(
-                "❌ [%s] Tender PDF download FAILED — url=%s  error=%s",
-                tender_id, tender_document_url, exc,
-            )
-            raise RuntimeError(f"Tender PDF download failed: {exc}") from exc
 
         # ── Run rule extraction ──────────────────────────────────
-        _log.info("[%s] Starting Gemini rule extraction …", tender_id)
+        _log.info("[%s] Starting Gemini rule extraction from OCR …", tender_id)
         try:
-            extraction_result = await extract_rules(pdf_path)
+            extraction_result = await extract_rules_from_text(bid_ocr, embedded_link_ocr)
         except Exception as exc:
             _log.error(
                 "❌ [%s] Rule extraction FAILED — error=%s",
@@ -189,13 +168,6 @@ async def _on_extraction_message(
 
         await message.ack()
         _log.debug("[%s] Message ACKed", tender_id)
-
-        # ── Cleanup ──────────────────────────────────────────────
-        try:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            _log.debug("[%s] Temp dir cleaned up: %s", tender_id, tmp_dir)
-        except Exception:
-            _log.warning("[%s] Temp dir cleanup failed: %s", tender_id, tmp_dir)
 
     except json.JSONDecodeError:
         _log.error(
