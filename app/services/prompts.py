@@ -356,7 +356,6 @@ Avoid extracting statements that only describe:
 
 Focus on conditions that determine bidder eligibility or participation.
 
-
 # 🔍 SIGNAL PHRASES
 
 Pay attention to statements that contain signals such as:
