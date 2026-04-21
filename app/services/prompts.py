@@ -344,6 +344,19 @@ Do not rely on section headings — rely on meaning.
 
 ---
 
+# 🧠 IMPORTANT DISTINCTION
+
+A condition should be extracted if it defines whether a bidder is allowed or not allowed to participate.
+
+Avoid extracting statements that only describe:
+- how to submit documents
+- formats, annexures, or templates
+- general platform rules or instructions
+- post-award obligations or contract execution requirements
+
+Focus on conditions that determine bidder eligibility or participation.
+
+
 # 🔍 SIGNAL PHRASES
 
 Pay attention to statements that contain signals such as:
