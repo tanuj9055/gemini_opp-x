@@ -163,10 +163,9 @@ async def _on_extraction_message(
         }
 
         _log.info(
-            "✅ [%s] Extraction pipeline complete — rules=%d  risk=%d  elapsed=%.1fs",
+            "✅ [%s] Extraction pipeline complete — rules=%d  elapsed=%.1fs",
             tender_id,
             len(extraction_result.rules),
-            len(extraction_result.risk),
             elapsed,
         )
 
@@ -183,10 +182,9 @@ async def _on_extraction_message(
         )
 
         _log.info(
-            "📤 [%s] Result published to '%s' — status=completed  rules=%d  risk=%d",
+            "📤 [%s] Result published to '%s' — status=completed  rules=%d",
             tender_id, results_queue_name,
             len(extraction_result.rules),
-            len(extraction_result.risk),
         )
 
         await message.ack()

@@ -10,7 +10,7 @@ import json
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ────────────────────────────────────────────────────────
@@ -541,86 +541,17 @@ class PDFGenerationResponse(BaseModel):
 # Tender Rule Extraction — Agent 1 (v1.0)
 # ────────────────────────────────────────────────────────
 
-class RuleType(str, Enum):
-    """Category of an extracted eligibility rule (Agent 1)."""
-    BIDDER_TURNOVER = "bidder_turnover"
-    OEM_TURNOVER = "oem_turnover"
-    EXPERIENCE_YEARS = "experience_years"
-    PAST_PERFORMANCE = "past_performance_percentage"
-    CERTIFICATE = "certificate_required"
-    EMD_REQUIRED = "emd_required"
-    EPBG_PERCENTAGE = "epbg_percentage"
-    EXEMPTION_MSE = "exemption_mse"
-    EXEMPTION_STARTUP = "exemption_startup"
-    OTHER_SPECIFIC = "other_specific"
-
-
-class RuleOperator(str, Enum):
-    """Comparison operator for a rule's value."""
-    GTE = ">="
-    LTE = "<="
-    EQ = "=="
-    EXISTS = "exists"
-
-
 class ExtractedRule(BaseModel):
-    """A single structured eligibility rule extracted from a tender document."""
-    id: str = Field(..., description="Unique rule identifier, e.g. 'rule_1'")
-    type: RuleType = Field(..., description="Rule category")
-    operator: RuleOperator = Field(..., description="Comparison operator")
-    value: Optional[Any] = Field(None, description="Threshold value (number or string)")
-    unit: Optional[str] = Field(None, description="Unit: INR, years, %, or null")
-    applies_to: Optional[str] = Field(None, description="Applicability: bidder, oem, both, or null")
-    description: str = Field(..., description="Human-readable rule description")
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Extraction confidence")
+    """A single eligibility rule extracted from a tender document."""
+    id: str = Field(..., description="Unique rule identifier, e.g. 'EC_1'")
+    text: str = Field(..., description="Exact extracted eligibility statement")
+    summary: Optional[str] = Field(None, description="Short human-readable explanation")
 
-    @field_validator("type", mode="before")
-    @classmethod
-    def coerce_rule_type(cls, v):
-        if v is None:
-            return RuleType.OTHER_SPECIFIC
-        try:
-            return RuleType(v)
-        except ValueError:
-            # Fallback mapping for older prompts or variations
-            mapping = {
-                "turnover": RuleType.BIDDER_TURNOVER,
-                "experience": RuleType.EXPERIENCE_YEARS,
-                "certificate": RuleType.CERTIFICATE,
-                "financial": RuleType.EMD_REQUIRED,
-                "other": RuleType.OTHER_SPECIFIC,
-            }
-            return mapping.get(str(v).lower(), RuleType.OTHER_SPECIFIC)
-
-    @field_validator("operator", mode="before")
-    @classmethod
-    def coerce_operator(cls, v):
-        if v is None:
-            return RuleOperator.EXISTS
-        try:
-            return RuleOperator(v)
-        except ValueError:
-            mapping = {
-                ">": RuleOperator.GTE,
-                "<": RuleOperator.LTE,
-                "=": RuleOperator.EQ,
-                "EXIST": RuleOperator.EXISTS,
-                "HAS": RuleOperator.EXISTS,
-            }
-            mapped = mapping.get(str(v).upper(), RuleOperator.EXISTS)
-            return RuleOperator(mapped)
-
-
-class RiskRule(BaseModel):
-    """Categorized risk or policy/regulatory flags."""
-    type: str = Field(..., description="policy | regulatory | compliance")
-    description: str = Field(..., description="Human-readable risk description")
 
 class TenderExtractionResult(BaseModel):
     """Complete result of tender rule extraction (Agent 1 output)."""
     tender_id: str = Field(default="UNKNOWN", description="Tender / Bid identifier")
     rules: List[ExtractedRule] = Field(default_factory=list, description="Extracted eligibility rules")
-    risk: List[RiskRule] = Field(default_factory=list, description="Extracted policy and risk rules")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Extraction metadata (title, dates, etc.)")
     raw_ocr_text: Optional[str] = Field(None, description="Full OCR text from tender PDF")
 
@@ -629,15 +560,61 @@ class TenderExtractionResult(BaseModel):
     def coerce_rules(cls, v):
         return v if v is not None else []
 
-    @field_validator("risk", mode="before")
-    @classmethod
-    def coerce_risk(cls, v):
-        return v if v is not None else []
-
     @field_validator("metadata", mode="before")
     @classmethod
     def coerce_metadata(cls, v):
         return v if v is not None else {}
+
+
+
+# ────────────────────────────────────────────────────────
+# Verifiable Eligibility Filter — Agent 5 (v1.0)
+# ────────────────────────────────────────────────────────
+
+class VerifiableCriterion(BaseModel):
+    """A criterion classified as verifiable or non-verifiable."""
+    id: str = Field(..., description="Original criterion ID, e.g. 'EC_1'")
+    text: str = Field(..., description="Original extracted text")
+    summary: Optional[str] = Field(None, description="Original short summary")
+    reason: str = Field(..., description="Why this criterion is/isn't verifiable")
+
+
+class FilterRulesRequest(BaseModel):
+    """POST /test/filter-rules request body.
+
+    Accepts either:
+    - The direct output of /test/extract-rules  (has a `rules` field)
+    - A plain object with `eligibility_criteria`
+
+    Extra fields (tender_id, metadata, raw_ocr_text) are silently ignored.
+    """
+    model_config = {"extra": "ignore"}
+
+    eligibility_criteria: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of criteria from Agent 1 (as eligibility_criteria)"
+    )
+    rules: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Alias accepted when pasting extract-rules output directly"
+    )
+
+    @model_validator(mode="after")
+    def merge_rules_into_criteria(self) -> "FilterRulesRequest":
+        """If eligibility_criteria is empty but rules is populated, use rules."""
+        if not self.eligibility_criteria and self.rules:
+            self.eligibility_criteria = self.rules
+        return self
+
+    def get_criteria(self) -> List[Dict[str, Any]]:
+        """Return the resolved criteria list (eligibility_criteria takes precedence)."""
+        return self.eligibility_criteria or self.rules
+
+
+class FilterRulesResponse(BaseModel):
+    """POST /test/filter-rules response."""
+    verifiable_criteria: List[VerifiableCriterion] = Field(default_factory=list)
+    non_verifiable_criteria: List[VerifiableCriterion] = Field(default_factory=list)
 
 
 
@@ -678,10 +655,17 @@ class TenderAnalysisResult(BaseModel):
 # Test / Debug Endpoint Schemas
 # ────────────────────────────────────────────────────────
 
+class EmbeddedLinkOcr(BaseModel):
+    sourceUrl: str
+    ocrText: str
+
 class ExtractRulesTestRequest(BaseModel):
     """POST /test/extract-rules request body."""
-    tender_document: str = Field(
-        ..., description="Raw text content of the tender document"
+    bidOcr: str = Field(
+        ..., description="Raw OCR text of the bid"
+    )
+    embeddedLinkOcr: List[EmbeddedLinkOcr] = Field(
+        default_factory=list, description="List of embedded links and their extracted OCR text"
     )
 
 

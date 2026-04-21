@@ -25,6 +25,7 @@ from app.worker.pdf_consumer import start_pdf_worker
 from app.worker.analysis_consumer import start_analysis_worker
 from app.worker.classification_consumer import start_classification_worker
 from app.worker.evaluation_consumer import start_evaluation_worker
+from app.worker.filter_consumer import start_filter_worker
 
 _log = logger.getChild("main")
 
@@ -72,10 +73,14 @@ async def lifespan(app: FastAPI):
         start_evaluation_worker(settings.rabbitmq_url),
         name="rabbitmq-evaluation-worker",
     )
+    filter_worker_task = asyncio.create_task(
+        start_filter_worker(settings.rabbitmq_url),
+        name="rabbitmq-filter-worker",
+    )
 
     yield
 
-    for task in (consumer_task, worker_task, pdf_worker_task, extraction_worker_task, analysis_worker_task, classification_worker_task, evaluation_worker_task):
+    for task in (consumer_task, worker_task, pdf_worker_task, extraction_worker_task, analysis_worker_task, classification_worker_task, evaluation_worker_task, filter_worker_task):
         task.cancel()
         try:
             await task

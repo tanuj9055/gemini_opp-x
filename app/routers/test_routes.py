@@ -21,6 +21,8 @@ from app.schemas import (
     EvaluateRulesRequest,
     EvaluateRulesResponse,
     ExtractRulesTestRequest,
+    FilterRulesRequest,
+    FilterRulesResponse,
     FullEligibilityRequest,
     FullEligibilityResponse,
     TenderAnalysisResult,
@@ -41,34 +43,25 @@ router = APIRouter(prefix="/test", tags=["Test / Debug"])
     "/extract-rules",
     response_model=TenderExtractionResult,
     summary="Test rule extraction agent",
-    description="Saves an uploaded PDF to a temp file and calls the existing rule extractor.",
+    description="Calls the rule extractor passing OCR text and embedded links.",
 )
-async def test_extract_rules(file: UploadFile = File(...)):
+async def test_extract_rules(body: ExtractRulesTestRequest):
     """Call existing rule extraction agent directly (no queue)."""
     job_id = uuid.uuid4().hex[:12]
-    _log.info("📥 /test/extract-rules — request received  job_id=%s  filename=%s", job_id, file.filename)
+    _log.info("📥 /test/extract-rules — request received  job_id=%s OCR length=%d", job_id, len(body.bidOcr))
 
     try:
-        from app.services.rule_extractor import extract_rules
-
-        # Write uploaded file to a temporary file
-        ext = Path(file.filename).suffix if file.filename else ".pdf"
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=ext, delete=False, mode="wb",
-        )
-        tmp.write(await file.read())
-        tmp.close()
-        tmp_path = Path(tmp.name)
+        from app.services.rule_extractor import extract_rules_from_text
 
         _log.info(
-            "Agent start — extract_rules  job_id=%s  tmp_file=%s",
+            "Agent start — extract_rules_from_text  job_id=%s  links=%d",
             job_id,
-            tmp_path.name,
+            len(body.embeddedLinkOcr),
         )
-        result = await extract_rules(tmp_path)
+        result = await extract_rules_from_text(body.bidOcr, body.embeddedLinkOcr)
 
         _log.info(
-            "Agent output — extract_rules  job_id=%s  rules=%d",
+            "Agent output — extract_rules_from_text  job_id=%s  rules=%d",
             job_id,
             len(result.rules),
         )
@@ -77,6 +70,49 @@ async def test_extract_rules(file: UploadFile = File(...)):
     except Exception as exc:
         _log.error(
             "❌ /test/extract-rules FAILED — job_id=%s  error=%s",
+            job_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ────────────────────────────────────────────────────────
+# 1b. Verifiable Eligibility Filter (Agent 5)
+# ────────────────────────────────────────────────────────
+
+@router.post(
+    "/filter-rules",
+    response_model=FilterRulesResponse,
+    summary="Test verifiable eligibility filter",
+    description="Classifies extracted rules as verifiable or non-verifiable.",
+)
+async def test_filter_rules(body: FilterRulesRequest):
+    """Call verifiable filter agent directly (no queue)."""
+    job_id = uuid.uuid4().hex[:12]
+    _log.info(
+        "📥 /test/filter-rules — request received  job_id=%s  criteria=%d",
+        job_id,
+        len(body.eligibility_criteria),
+    )
+
+    try:
+        from app.agents.filter_agent import filter_rules
+
+        _log.info("Agent start — filter_rules  job_id=%s", job_id)
+        result = await filter_rules(body.get_criteria())
+
+        _log.info(
+            "Agent output — filter_rules  job_id=%s  verifiable=%d  non_verifiable=%d",
+            job_id,
+            len(result.verifiable_criteria),
+            len(result.non_verifiable_criteria),
+        )
+        return result
+
+    except Exception as exc:
+        _log.error(
+            "❌ /test/filter-rules FAILED — job_id=%s  error=%s",
             job_id,
             exc,
             exc_info=True,
@@ -119,10 +155,10 @@ async def test_analyze_bid(file: UploadFile = File(...)):
         result = await analyze_bid(tmp_path)
 
         _log.info(
-            "Agent output — analyze_bid  job_id=%s  reqs=%d  risks=%d",
+            "Agent output — analyze_bid  job_id=%s  highlights=%d  sections=%d",
             job_id,
-            len(result.tender_analysis.technical_requirements),
-            len(result.tender_analysis.risks),
+            len(result.tender_analysis.highlights),
+            len(result.tender_analysis.sections),
         )
         return TenderAnalysisEndpointResponse(tender_analysis=result.tender_analysis)
 

@@ -9,9 +9,11 @@ from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
 
 
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(dotenv_path=_ENV_FILE)
 
 
 class Settings(BaseSettings):
@@ -61,9 +63,13 @@ class Settings(BaseSettings):
     rabbitmq_analysis_jobs_queue: str = "tender_analysis_jobs"
     rabbitmq_analysis_results_queue: str = "tender_analysis_results"
 
-    # ── RabbitMQ (Classification Agent) ───────────────────
+    # ── RabbitMQ (Classify rules) ───────────────────
     rabbitmq_classification_jobs_queue: str = "rule_classification_jobs"
     rabbitmq_classification_results_queue: str = "rule_classification_results"
+
+    # ── RabbitMQ (Filter Rules Agent) ───────────────────
+    rabbitmq_filter_jobs_queue: str = "filter_rules"
+    rabbitmq_filter_results_queue: str = "filter_rules_results"
 
     # ── RabbitMQ (Evaluation Agent) ───────────────────────
     rabbitmq_evaluation_jobs_queue: str = "rule_evaluation_jobs"

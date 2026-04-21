@@ -308,351 +308,97 @@ CRITICAL RULES:
 # ────────────────────────────────────────────────────────
 
 RULE_EXTRACTION_PROMPT = """\
-You are an information extraction engine.
+You are an information extraction engine for Indian GeM tender documents.
 
-Your task is to extract structured eligibility rules from a GeM tender document.
-
----
-
-# 🚨 CORE OBJECTIVE
-
-Extract ONLY those rules that determine whether a bidder is ELIGIBLE to participate in the tender.
-
-A rule must represent a **single independent eligibility condition**.
+Your task is to extract all eligibility-related statements from the given tender content.
 
 ---
 
-# ⚠️ STEP 1: DETERMINE BID TYPE
+# 🎯 OBJECTIVE
 
-### 🟢 HIGH-ELIGIBILITY BID
-
-Contains:
-
-* turnover thresholds
-* experience requirements
-* financial criteria
-
-→ Use STRICT filtering
+Extract any statement that may influence whether a bidder is eligible to participate in the tender.
 
 ---
 
-### 🟡 LOW-ELIGIBILITY BID
+# 🧠 INSTRUCTIONS
 
-Does NOT contain:
-
-* turnover
-* experience
-* strong qualification criteria
-
-→ DO NOT force rule extraction
+* Capture all eligibility conditions
+* Be inclusive — do not miss relevant statements
+* Do not over-filter
+* Do not classify or interpret beyond extraction
 
 ---
 
-# ⚠️ STEP 2: EXTRACTION LOGIC
+# 🧠 EXTRACTION GUIDANCE
+
+Eligibility conditions may appear anywhere in the document, not just under sections titled “Eligibility Criteria”.
+
+You must read the entire document and extract conditions from all sections, including technical, commercial, legal, compliance, evaluation, and notes.
+
+A statement should be extracted if it implies that a bidder:
+
+* must satisfy a condition to participate, or
+* may be disqualified, rejected, or considered ineligible if the condition is not met
+
+Do not rely on section headings — rely on meaning.
 
 ---
 
-## 🟢 STRICT MODE
-
-Extract ONLY:
-
-* turnover requirements
-* experience requirements
-* past performance conditions
-
-* proof/document requirements ONLY if the document itself is the eligibility condition
-
-### 🚫 STRICT ELIGIBILITY FILTER (CRITICAL)
-
-Only extract rules that directly determine whether a bidder is qualified.
-
-DO NOT extract:
-
-- operational requirements (office location, service setup, support systems)
-- declarations (undertakings, self-declarations, affidavits)
-- service capability expectations (telephone number, escalation matrix, support structure)
-
-- behavioral expectations (e.g., not under influence of alcohol, proper conduct)
-- safety instructions
-- workforce discipline requirements
-- general legal or contractual obligations
-
-These do NOT determine bidder eligibility and must NOT be included in "rules".
-
-If a condition does NOT directly disqualify a bidder, DO NOT extract it as a rule.
-
-Example:
-✔ "ISO 9001 certification required" → rule  
-✔ "OEM authorization certificate required" → rule  
-
-❌ "Upload documents for verification" → NOT a rule (goes to risk)  
-❌ "Documents required for eligibility proof" → NOT a rule (goes to risk)
-
----
-
-Other eligibility conditions MAY appear, such as:
-
-* technical capability (e.g., certifications like ISO, BIS)
-* capacity or infrastructure requirements (e.g., manpower, production capability)
-* OEM / authorization requirements
-
-Extract these ONLY IF:
-
-* explicitly stated in the document  
-* AND clearly required to determine bidder eligibility  
-
-DO NOT assume, infer, or generalize these conditions.
-
-### 🚫 POLICY EXCLUSION RULE (VERY IMPORTANT)
-
-DO NOT extract rules related to policy, preference, or classification systems such as:
-
-- Make in India (MII) classification (Class 1 / Class 2 suppliers)
-- Local content percentage requirements
-- MSE / Startup purchase preference conditions
-- OEM requirements tied to purchase preference policies
-
-These conditions do NOT determine core bidder eligibility.
-
-They are policy or evaluation-related constraints and MUST be included in the "risk" section, NOT in "rules".
-
-
-
----
-
-
-## 🟡 LOW-ELIGIBILITY MODE
-
-👉 If NO real eligibility rules exist:
-
-RETURN:
-{
-"rules": [],
-"risk": [...]
-}
-
-DO NOT fabricate or force rules.
-
----
-
-# 🚨 RISK EXTRACTION (VERY IMPORTANT)
-
-Extract the following into a separate **risk** array:
-
-### Include as RISK:
-
-1. Policy constraints:
-
-   * MSE exemption not allowed
-   * Startup exemption not allowed
-   * Purchase preference conditions
-
-2. Regulatory conditions:
-
-   * land border country restrictions
-
-3. Buyer-specific compliance (ATC):
-
-   * mandatory declarations
-   * Integrity Pact
-   * Conflict of Interest
-   * Ground of Defence
-   * Bid Security Declaration
-   * certificates / data sheets / document uploads
-
-4. Generic rejection clauses:
-
-   * "bid will be rejected if documents not uploaded"
-
----
-
-# 🧠 RISK NORMALIZATION & COMPRESSION (CRITICAL)
-
-Risk entries MUST be concise, grouped, and human-readable.
-
----
-
-## 🔥 COMPRESSION RULES
-
-1. DO NOT copy long paragraphs from the document
-2. DO NOT include legal wording or full clauses
-3. Summarize into a SHORT actionable statement (max 1 sentence)
-
----
-
-## 🔗 GROUPING RULES (VERY IMPORTANT)
-
-If multiple items belong to the SAME category → MERGE them
-
-### 🚨 CRITICAL COMPLIANCE RULE (NEW)
-
-ALL compliance / ATC-related items MUST be grouped into EXACTLY ONE risk.
-
-This includes:
-
-* declarations
-* certificates
-* data sheets
-* document uploads
-* ATC clauses
-
-❌ DO NOT create multiple compliance risks
-❌ DO NOT list them separately
-
-### ✅ ALWAYS RETURN:
-
-"Multiple mandatory ATC declarations and supporting documents required."
-
----
-
-## 🧩 NORMALIZATION RULES
-
-Convert raw text → normalized format:
-
-* "MSE Exemption... No"
-  → "MSE exemption not allowed"
-
-* "Startup Exemption... No"
-  → "Startup exemption not allowed"
-
-* Long purchase preference clause
-  → "MSE purchase preference applicable (L1+15% matching allowed)"
-
-* Land border clause
-  → "Land-border restriction applies (registration required)"
-
----
-
-## ❌ REMOVE GENERIC NOISE (UPDATED)
-
-DO NOT include:
-
-* generic rejection lines
-* "bid may be rejected if documents missing"
-* standard GeM disclaimers
-* consequence-only statements (failure, termination, penalties)
-
-Only include meaningful risks.
-
----
-
-## 🔁 DEDUPLICATION RULE (NEW)
-
-* Do NOT include duplicate or overlapping risks
-* Merge similar meanings into ONE
-
-Example:
-
-* "MSE preference applicable"
-* "Purchase preference for MSE"
-
-→ Keep only ONE normalized version
-
----
-
-## 🎯 FINAL REQUIREMENT
-
-Each risk must be:
-
-* ≤ 1 sentence
-* human-readable
-* non-repetitive
-* grouped where possible
-* compliance risks ≤ 1
-
----
-
-### ⚠️ IMPORTANT
-
-These are NOT eligibility rules.
-
-They must NEVER appear in "rules".
-
----
-
-# ❌ STRICTLY EXCLUDE FROM RULES
-
-* EMD / ePBG
-* Payment terms
-* SLA / SOW
-* Compliance declarations
-* ATC clauses
-* Policy statements
-* Regulatory conditions
-
----
-
-# 🧠 RULE TYPE MAPPING (UPDATED)
-
-First understand the rule → then map:
-
-* financial → bidder_turnover
-* experience → experience_years
-* performance → past_performance_percentage
-* proof → certificate_required
-
-DO NOT force-fit rules.
-
----
-
-# ⚠️ DEDUPLICATION RULE
-
-* Do NOT separate condition + proof
-* Keep only core eligibility condition
+# 🔍 SIGNAL PHRASES
+
+Pay attention to statements that contain signals such as:
+
+* “must have”
+* “should have”
+* “required to”
+* “shall be”
+* “only if”
+* “eligible”
+* “not eligible”
+* “mandatory”
+* “may be rejected”
+* “subject to”
+
+These often indicate eligibility-related conditions.
 
 ---
 
 # 🧾 OUTPUT FORMAT (STRICT JSON)
 
 {
-"tender_id": "string",
-"rules": [
+"eligibility_criteria": [
 {
-"id": "rule_1",
-"type": "<ENUM>",
-"operator": ">= | <= | == | exists",
-"value": number | string | null,
-"unit": "INR | years | % | null",
-"applies_to": "bidder | oem | both | null",
-"description": "concise rule",
-"confidence": 0.0 to 1.0
-}
-],
-"risk": [
-{
-"type": "policy | regulatory | compliance",
-"description": "clear human-readable risk"
+"id": "EC_1",
+"text": "exact extracted statement",
+"summary": "short human-readable explanation of the rule"
 }
 ]
 }
 
 ---
 
-# ⚠️ CONSTRAINTS
+# ⚠️ RULES
 
-* DO NOT evaluate eligibility
-* DO NOT hallucinate
-* DO NOT force rules
-* rules can be EMPTY
-* risk should capture non-eligibility constraints
-
----
-
-# 🎯 FINAL VALIDATION
-
-✅ If no eligibility criteria → rules = []
-✅ All policy/compliance/regulatory → go to risk
-✅ No noisy rules
-✅ EXACTLY ≤ 1 compliance risk
-✅ No duplicate risks
+* Each item must represent one clear condition
+* Split combined conditions into multiple items
+* Preserve numbers exactly
+* Keep wording close to original
+* "summary" must be short, simple, and easy to understand
+* Do not hallucinate
+* Do not invent
 
 ---
 
 # 🎯 GOAL
 
-Produce a clean eligibility rule set AND a separate risk layer,
-so downstream systems remain deterministic and accurate.
+Produce a high-recall list of eligibility-related statements with simple explanations.
 
+---
+
+# INPUT
+
+Tender content:
+{tender_text}
 
 
 
@@ -1321,6 +1067,92 @@ Make output audit-friendly and self-explanatory.
 ### Customer Profile:
 
 {customer_profile_json}
+
+"""
+
+
+# ────────────────────────────────────────────────────────
+# Verifiable Eligibility Filter Prompt — Agent 5 (v1.0)
+# ────────────────────────────────────────────────────────
+
+VERIFIABLE_FILTER_PROMPT = """\
+You are Agent 5: Verifiable Eligibility Filter for a tender analysis system.
+
+You receive a JSON object containing extracted eligibility criteria from Agent 1.
+
+Your task is to classify each rule as VERIFIABLE or NOT VERIFIABLE before bid submission.
+
+---
+
+# DEFINITION
+
+A rule is considered relevant only if it is BOTH:
+1. Verifiable using documents or factual data
+2. Defines bidder eligibility or qualification BEFORE bid submission
+
+Do not include rules that are only about:
+- document formats
+- submission procedures
+- actions required during bidding
+
+If a rule requires submission of a document that proves an eligibility condition
+(e.g., certificate, registration, experience proof),
+then it should be considered verifiable eligibility.
+
+Only exclude rules where the document is purely procedural
+(e.g., format, annexure template, submission method).
+
+If a certification is required (even with future clause),
+treat it as verifiable eligibility.
+
+
+A rule is NOT VERIFIABLE if:
+
+* It applies after bid submission or after contract award
+* It is a bidding process rule (reverse auction, pricing rules, bid extension)
+* It is a general compliance or policy statement
+* It describes actions during execution of contract
+* It is an informational or procedural statement
+
+---
+
+# OUTPUT FORMAT (STRICT JSON)
+
+{{
+  "verifiable_criteria": [
+    {{
+      "id": "<original id>",
+      "text": "<original text>",
+      "summary": "<original summary>",
+      "reason": "short 1-line reason why this is verifiable"
+    }}
+  ],
+  "non_verifiable_criteria": [
+    {{
+      "id": "<original id>",
+      "text": "<original text>",
+      "summary": "<original summary>",
+      "reason": "short 1-line reason why this is not verifiable"
+    }}
+  ]
+}}
+
+---
+
+# RULES
+
+* Do NOT modify original text, id, or summary — carry them forward exactly
+* Add a short reason (1 line max)
+* Be strict but practical
+* Every input criterion must appear exactly once in the output
+* Do not hallucinate or invent criteria
+* Return ONLY valid JSON — no markdown fences
+
+---
+
+# INPUT
+
+{eligibility_criteria_json}
 
 """
 
