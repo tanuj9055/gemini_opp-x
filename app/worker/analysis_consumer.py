@@ -77,44 +77,22 @@ async def _on_analysis_message(
         job_id = body.get("job_id", "")
         customer_id = body.get("customer_id", "UNKNOWN")
         tender_id = body.get("tender_id", "UNKNOWN")
-        tender_document_url = body.get("tender_document_url", "")
+        ocr_text = body.get("ocr_text", "")
+        embedded_links_ocr = body.get("embedded_links_ocr", [])
 
         _log.info(
-            "📥 Analysis job received — job_id=%s tender_id=%s customer_id=%s url=%s",
-            job_id, tender_id, customer_id,
-            tender_document_url[:120] if tender_document_url else "(empty)",
+            "📥 Analysis job received — job_id=%s tender_id=%s customer_id=%s ocr_text_len=%d links_count=%d",
+            job_id, tender_id, customer_id, len(ocr_text), len(embedded_links_ocr)
         )
 
-        if not tender_document_url:
+        if not ocr_text:
             raise ValueError(
-                f"Missing 'tender_document_url' in analysis job for tender_id={tender_id}"
+                f"Missing 'ocr_text' in analysis job for tender_id={tender_id}"
             )
-
-        safe_tender_id = tender_id.replace("/", "_").replace("\\", "_")
-        tmp_dir = Path(tempfile.mkdtemp(prefix=f"gem_analysis_{safe_tender_id}_"))
-        _log.debug(
-            "[%s] Downloading tender PDF to temp dir: %s",
-            tender_id, tmp_dir,
-        )
-
-        try:
-            pdf_path = await download_file(tender_document_url, tmp_dir)
-            _log.info(
-                "[%s] Tender PDF downloaded — path=%s  size=%.1f KB",
-                tender_id,
-                pdf_path.name,
-                pdf_path.stat().st_size / 1024,
-            )
-        except Exception as exc:
-            _log.error(
-                "❌ [%s] Tender PDF download FAILED — url=%s  error=%s",
-                tender_id, tender_document_url, exc,
-            )
-            raise RuntimeError(f"Tender PDF download failed: {exc}") from exc
 
         _log.info("[%s] Starting Gemini bid analysis …", tender_id)
         try:
-            analysis_result = await analyze_bid(pdf_path)
+            analysis_result = await analyze_bid(ocr_text, embedded_links_ocr)
         except Exception as exc:
             _log.error(
                 "❌ [%s] Bid analysis FAILED — error=%s",

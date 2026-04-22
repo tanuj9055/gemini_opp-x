@@ -23,13 +23,15 @@ from app.services.prompts import BID_ANALYSIS_INSIGHTS_PROMPT
 _log = logger.getChild("bid_analyzer")
 
 
-async def analyze_bid(tender_pdf_path: Path) -> TenderAnalysisResult:
-    """Analyze a tender PDF for insights (Scope, Requirements, Risks).
+async def analyze_bid(ocr_text: str, embedded_links_ocr: list) -> TenderAnalysisResult:
+    """Analyze a tender using OCR text and embedded links for insights (Scope, Requirements, Risks).
 
     Parameters
     ----------
-    tender_pdf_path : Path
-        Local path to the downloaded tender PDF.
+    ocr_text : str
+        The raw text extracted via OCR.
+    embedded_links_ocr : list
+        List of dictionaries with OCR'd text from embedded links.
 
     Returns
     -------
@@ -41,30 +43,31 @@ async def analyze_bid(tender_pdf_path: Path) -> TenderAnalysisResult:
     RuntimeError
         If Gemini returns unparseable JSON or fails.
     """
-    filename = tender_pdf_path.name
     _log.info(
-        "📋 Bid analysis STARTED — file=%s  size=%.1f KB",
-        filename,
-        tender_pdf_path.stat().st_size / 1024,
+        "📋 Bid analysis STARTED — text_len=%d  links=%d",
+        len(ocr_text),
+        len(embedded_links_ocr),
     )
     t0 = time.perf_counter()
 
-    uploaded_handle = None
     try:
-        # ── Step 1: Upload PDF to Gemini ─────────────────────────
-        _log.debug("[analyze_bid] Uploading PDF to Gemini: %s", filename)
-        uploaded_handle = await upload_file(tender_pdf_path, display_name=filename)
-        upload_elapsed = time.perf_counter() - t0
-        _log.debug(
-            "[analyze_bid] Upload complete — elapsed=%.2fs", upload_elapsed
-        )
+        # ── Step 1: Prepare Prompt ───────────────────────────────
+        _log.debug("[analyze_bid] Preparing analysis prompt for Gemini")
+        prompt = BID_ANALYSIS_INSIGHTS_PROMPT
+        prompt += f"\n\n--- TENDER OCR TEXT ---\n{ocr_text}\n"
+        
+        if embedded_links_ocr:
+            links_text = "\n\n".join(
+                f"--- CONTENT FROM LINK: {link.get('sourceUrl', 'Unknown') if isinstance(link, dict) else getattr(link, 'sourceUrl', 'Unknown')} ---\n{link.get('ocrText', '') if isinstance(link, dict) else getattr(link, 'ocrText', '')}" 
+                for link in embedded_links_ocr
+            )
+            prompt += f"\n\nAdditional Content from Embedded Links:\n{links_text}\n"
 
         # ── Step 2: Call Gemini with analysis prompt ─────────────
         _log.debug("[analyze_bid] Sending analysis prompt to Gemini")
-        prompt = BID_ANALYSIS_INSIGHTS_PROMPT
         raw_text, usage = await generate(
             prompt,
-            file_handles=[uploaded_handle],
+            file_handles=None,
             temperature=0.2,
         )
         generation_elapsed = time.perf_counter() - t0
@@ -181,15 +184,9 @@ async def analyze_bid(tender_pdf_path: Path) -> TenderAnalysisResult:
     except Exception as exc:
         elapsed = time.perf_counter() - t0
         _log.error(
-            "❌ Bid analysis FAILED — file=%s  elapsed=%.2fs  error=%s",
-            filename,
+            "❌ Bid analysis FAILED — elapsed=%.2fs  error=%s",
             elapsed,
             exc,
             exc_info=True,
         )
         raise
-
-    finally:
-        if uploaded_handle:
-            _log.debug("[analyze_bid] Cleaning up uploaded file handle")
-            await cleanup_files([uploaded_handle])
