@@ -62,7 +62,7 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.config import get_settings
 from app.logging_cfg import logger
-from app.services.hsn_generator import generate_hsn_codes
+from app.agents.hsn_generator import generate_hsn_codes
 
 _log = logger.getChild("hsn_worker")
 

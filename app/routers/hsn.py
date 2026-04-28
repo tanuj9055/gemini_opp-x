@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.logging_cfg import logger
-from app.services.hsn_generator import generate_hsn_codes
+from app.agents.hsn_generator import generate_hsn_codes
 
 _log = logger.getChild("router.hsn")
 

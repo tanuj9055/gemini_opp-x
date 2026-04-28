@@ -51,14 +51,15 @@ async def test_extract_rules(body: ExtractRulesTestRequest):
     _log.info("📥 /test/extract-rules — request received  job_id=%s OCR length=%d", job_id, len(body.bidOcr))
 
     try:
-        from app.services.rule_extractor import extract_rules_from_text
+        from app.agents.rule_extractor import extract_rules_from_text
 
         _log.info(
             "Agent start — extract_rules_from_text  job_id=%s  links=%d",
             job_id,
             len(body.embeddedLinkOcr),
         )
-        result = await extract_rules_from_text(body.bidOcr, body.embeddedLinkOcr)
+        links_data = [link.model_dump() for link in body.embeddedLinkOcr] if body.embeddedLinkOcr and hasattr(body.embeddedLinkOcr[0], "model_dump") else [dict(link) for link in body.embeddedLinkOcr] if body.embeddedLinkOcr else []
+        result = await extract_rules_from_text(body.bidOcr, links_data)
 
         _log.info(
             "Agent output — extract_rules_from_text  job_id=%s  rules=%d",
@@ -128,31 +129,23 @@ async def test_filter_rules(body: FilterRulesRequest):
     "/analyze-bid",
     response_model=TenderAnalysisEndpointResponse,
     summary="Test bid analysis agent",
-    description="Saves an uploaded PDF to a temp file and calls the existing bid analyzer.",
+    description="Calls the existing bid analyzer passing OCR text and embedded links.",
 )
-async def test_analyze_bid(file: UploadFile = File(...)):
+async def test_analyze_bid(body: ExtractRulesTestRequest):
     """Call existing bid analysis agent directly (no queue)."""
     job_id = uuid.uuid4().hex[:12]
-    _log.info("📥 /test/analyze-bid — request received  job_id=%s  filename=%s", job_id, file.filename)
+    _log.info("📥 /test/analyze-bid — request received  job_id=%s  OCR length=%d", job_id, len(body.bidOcr))
 
     try:
-        from app.services.bid_analyzer import analyze_bid
-
-        # Write uploaded file to a temporary file
-        ext = Path(file.filename).suffix if file.filename else ".pdf"
-        tmp = tempfile.NamedTemporaryFile(
-            suffix=ext, delete=False, mode="wb",
-        )
-        tmp.write(await file.read())
-        tmp.close()
-        tmp_path = Path(tmp.name)
+        from app.agents.bid_analyzer import analyze_bid
 
         _log.info(
-            "Agent start — analyze_bid  job_id=%s  tmp_file=%s",
+            "Agent start — analyze_bid  job_id=%s  links=%d",
             job_id,
-            tmp_path.name,
+            len(body.embeddedLinkOcr),
         )
-        result = await analyze_bid(tmp_path)
+        links_data = [link.model_dump() for link in body.embeddedLinkOcr] if body.embeddedLinkOcr and hasattr(body.embeddedLinkOcr[0], "model_dump") else [dict(link) for link in body.embeddedLinkOcr] if body.embeddedLinkOcr else []
+        result = await analyze_bid(body.bidOcr, links_data)
 
         _log.info(
             "Agent output — analyze_bid  job_id=%s  highlights=%d  sections=%d",

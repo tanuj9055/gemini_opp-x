@@ -7,7 +7,7 @@ Queues
 - **Publishes** to:  ``tender_extraction_results`` (durable queue)
 
 The worker uses `aio_pika` for async RabbitMQ communication and delegates
-the actual extraction to :func:`app.services.rule_extractor.extract_rules`.
+the actual extraction to :func:`app.agents.rule_extractor.extract_rules`.
 
 Message contract (inbound)
 --------------------------
@@ -57,7 +57,7 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.config import get_settings
 from app.logging_cfg import logger
-from app.services.rule_extractor import extract_rules_from_text
+from app.agents.rule_extractor import extract_rules_from_text
 
 _log = logger.getChild("extraction_worker")
 
@@ -85,11 +85,10 @@ async def _on_extraction_message(
     """Process a single tender extraction job from RabbitMQ.
 
     Workflow:
-      1. Decode & validate the JSON payload.
-      2. Download the tender PDF.
-      3. Run rule extraction via Gemini.
-      4. Publish the result to ``tender_extraction_results``.
-      5. ACK on success, NACK (no requeue) on permanent failure.
+      1. Decode & validate the JSON payload (OCR text).
+      2. Run rule extraction via Gemini using the OCR data.
+      3. Publish the result to ``tender_extraction_results``.
+      4. ACK on success, NACK (no requeue) on permanent failure.
     """
     settings = get_settings()
     results_queue_name = settings.rabbitmq_extraction_results_queue

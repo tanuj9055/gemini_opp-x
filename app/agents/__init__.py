@@ -1,1 +1,1 @@
-# Agents package — classification and evaluation agents.
+# Agents package — AI-driven domain logic for GeM procurement auditing.

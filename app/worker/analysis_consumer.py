@@ -7,7 +7,7 @@ Queues
 - **Publishes** to:  ``tender_analysis_results`` (durable queue)
 
 The worker uses `aio_pika` for async RabbitMQ communication and delegates
-the actual analysis to :func:`app.services.bid_analyzer.analyze_bid`.
+the actual analysis to :func:`app.agents.bid_analyzer.analyze_bid`.
 
 Message contract (inbound)
 --------------------------
@@ -15,7 +15,10 @@ Message contract (inbound)
 
     {
       "tender_id": "8481457",
-      "tender_document_url": "s3://bucket/path/tender.pdf"
+      "job_id": "...",
+      "customer_id": "...",
+      "ocr_text": "Text of the tender...",
+      "embedded_links_ocr": [{"link": "url", "context": "text"}]
     }
 
 Result contract (outbound)
@@ -46,8 +49,7 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.config import get_settings
 from app.logging_cfg import logger
-from app.services.bid_analyzer import analyze_bid
-from app.services.s3_client import download_file
+from app.agents.bid_analyzer import analyze_bid
 
 _log = logger.getChild("analysis_worker")
 
@@ -64,6 +66,12 @@ async def _on_analysis_message(
     channel: aio_pika.abc.AbstractChannel,
 ) -> None:
     """Process a single tender analysis job from RabbitMQ.
+
+    Workflow:
+      1. Decode & validate the JSON payload (OCR text).
+      2. Run bid analysis via Gemini using the OCR data.
+      3. Publish the result to ``tender_analysis_results``.
+      4. ACK on success, NACK (no requeue) on permanent failure.
     """
     settings = get_settings()
     results_queue_name = settings.rabbitmq_analysis_results_queue

@@ -37,23 +37,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "DEBUG"
 
-    # ── AWS / S3 ──────────────────────────────────────
-    aws_access_key: str = ""
-    aws_secret_key: str = ""
-    aws_region: str = ""
-    aws_s3_bucket: str = ""
-
     # ── RabbitMQ ──────────────────────────────────────
     rabbitmq_url: str = "amqp://localhost"
-    rabbitmq_jobs_queue: str = "bid_evaluation_jobs"
-    rabbitmq_results_queue: str = "bid_evaluation_results"
+ 
     # ── RabbitMQ (HSN generation) ─────────────────────────
     rabbitmq_hsn_jobs_queue: str = "hsn_requests_queue"
     rabbitmq_hsn_results_queue: str = "hsn_generation_results"
-    
-    # ── RabbitMQ (PDF generation) ─────────────────────────
-    rabbitmq_pdf_jobs_queue: str = "pdf_generation_jobs"
-    rabbitmq_pdf_results_queue: str = "pdf_generation_results"
 
     # ── RabbitMQ (Tender rule extraction) ─────────────────
     rabbitmq_extraction_jobs_queue: str = "tender_extraction_jobs"

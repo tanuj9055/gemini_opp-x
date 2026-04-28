@@ -1,258 +1,141 @@
-# GeM Procurement Audit Service
+# 🎯 GeM Multi-Agent Audit Service
 
-Automated auditing of **Government e-Marketplace (GeM)** procurement documents
-powered by **Gemini 1.5 Pro** multimodal AI.
+**Automated auditing of Government e-Marketplace (GeM) procurement documents** powered by a modular **Gemini 1.5 Pro** multi-agent architecture.
+
+This service provides an intelligent pipeline to analyze tender documents, evaluate vendor eligibility, and classify items using advanced multimodal AI. It is designed to integrate seamlessly with a NestJS backend via RabbitMQ for asynchronous processing.
 
 ---
 
-## Quick Start
+## 📋 Table of Contents
+1. [Architecture Overview](#-architecture-overview)
+2. [The Multi-Agent Pipeline](#-the-multi-agent-pipeline)
+3. [Technology Stack](#-technology-stack)
+4. [Project Structure](#-project-structure)
+5. [Getting Started](#-getting-started)
+6. [API Endpoints](#-api-endpoints)
+7. [RabbitMQ Configuration](#-rabbitmq-configuration)
+
+---
+
+## 🏗️ Architecture Overview
+
+The system follows a separate-of-concerns pattern, isolating AI-driven domain logic from infrastructure utilities.
+
+- **FastAPI Layer**: Provides synchronous endpoints for testing and direct integration.
+- **Agent Layer (`app/agents/`)**: Contains specialized AI agents for extraction, analysis, classification, and evaluation.
+- **Service Layer (`app/services/`)**: Provides shared infrastructure utilities (Gemini API wrapper, prompt templates).
+- **Worker Layer (`app/worker/`)**: Background consumers that process RabbitMQ jobs asynchronously.
+
+---
+
+## 🤖 The Multi-Agent Pipeline
+
+The audit process is broken down into specialized agents that work together to ensure high accuracy and structured outputs.
+
+| Agent | Module | Description |
+| :--- | :--- | :--- |
+| **Agent 1** | `rule_extractor.py` | Extracts structured eligibility criteria from complex bid PDFs. |
+| **Agent 1b** | `filter_agent.py` | (Verifiable Filter) Separates checkable rules from narrative/non-verifiable ones. |
+| **Agent 2** | `bid_analyzer.py` | Generates summaries, highlights, and insights for vendors. |
+| **Agent 3** | `classification_agent.py` | Maps extracted criteria to specific fields in a customer's profile. |
+| **Agent 4** | `evaluation_agent.py` | Performs pass/fail assessment based on provided customer data. |
+| **HSN Agent** | `hsn_generator.py` | Classifies items into precise HSN product codes. |
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| **Framework** | FastAPI (Python 3.10+) |
+| **AI Model** | Google Gemini 1.5 Pro / 2.5 Pro |
+| **Message Queue** | RabbitMQ (via `aio-pika`) |
+| **PDF Processing** | `pypdf`, `reportlab` |
+| **Data Validation** | Pydantic v2 |
+| **AI Reliability** | `json-repair`, `tenacity` |
+
+---
+
+## 📁 Project Structure
+
+```text
+app/
+├── agents/             # AI-driven domain logic (Agents 1-5)
+│   ├── rule_extractor.py
+│   ├── bid_analyzer.py
+│   ├── hsn_generator.py
+│   ├── filter_agent.py
+│   └── ...
+├── services/           # Infrastructure & Utilities
+│   ├── gemini_client.py # Gemini Files API & Generation
+│   └── prompts.py       # Centralized prompt templates
+├── worker/             # RabbitMQ Consumers
+│   ├── extraction_consumer.py
+│   ├── analysis_consumer.py
+│   └── ...
+├── routers/            # HTTP Endpoints
+│   ├── test_routes.py   # Development & Validation UI
+│   └── hsn.py
+├── config.py           # Configuration (Pydantic Settings)
+├── schemas.py          # Unified Pydantic models
+└── main.py             # Entry point & Lifespan management
+```
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.9+
-- RabbitMQ running (default: `amqp://localhost`)
-- Gemini API key (free tier available at https://ai.google.dev/gemini-api/docs/api-key)
+- RabbitMQ server
+- Google Gemini API Key
 
-### Setup on Your Machine
+### Installation
 
-```bash
-# 1. Clone the repository
-git clone <your-repo-url>
-cd gemini_opp-x
-
-# 2. Create a virtual environment
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS / Linux
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment
-copy .env.example .env
-# Edit .env and set GOOGLE_API_KEY and RABBITMQ_URL
-
-# 5. Run the FastAPI server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Swagger UI → **http://localhost:8000/docs**
-ReDoc      → **http://localhost:8000/redoc**
-
-### Setup on Friend's Machine (Different Environment)
-
-Your friend can follow the same steps **WITHOUT manual data entry** because the system is event-driven:
-
-1. **Clone your repo** from GitHub
-2. **Install dependencies** (`pip install -r requirements.txt`)
-3. **Set up `.env`** with their own credentials:
-   - `GOOGLE_API_KEY` — their own Gemini API key
-   - `RABBITMQ_URL` — point to shared RabbitMQ broker
-   - `AWS_*` — optional, only if using S3 for documents
-4. **Run the server** — same command as above
-5. **NestJS publishes events** to RabbitMQ → Python consumes and processes automatically
-
-**No manual user insertion needed!** All data flows via RabbitMQ events.
-
----
-
-## Endpoints
-
-| Method | Path               | Description                                      |
-| ------ | ------------------ | ------------------------------------------------ |
-| GET    | `/health`          | Health check                                     |
-| POST   | `/analyze-bid`     | Upload a GeM Bid PDF → structured eligibility    |
-| POST   | `/evaluate-vendor` | Bid JSON + vendor PDFs → scored vendor audit     |
-
-### POST `/analyze-bid`
-
-- **Input**: A single GeM Bid PDF (`multipart/form-data`, field: `file`).
-- **Output**: JSON with eligibility criteria, EMD, scope of work, risks,
-  bounding boxes, and full OCR text.
-
-### POST `/evaluate-vendor`
-
-- **Input** (multipart/form-data):
-  - `bid_json` — stringified JSON from `/analyze-bid`.
-  - `files` — 6-7 vendor PDFs (GST, PAN, balance sheets, work orders, etc.).
-- **Output**: JSON with eligibility score (0-100), criterion verdicts,
-  vendor profile, risks, and recommendation (APPROVE / REJECT / REVIEW).
-
----
-
-## Event-Driven Architecture (RabbitMQ)
-
-### How It Works
-
-This service is designed to integrate with a **NestJS backend** via RabbitMQ event streaming:
-
-```
-┌─────────────┐                           ┌──────────────┐
-│   NestJS    │  Publishes "tender_apply"  │ analysis_ex  │
-│  Backend    ├──────────────────────────→ │   (fanout)   │
-└─────────────┘                           └──────────────┘
-                                                ▼
-                                         ┌──────────────┐
-                                         │  Python App  │
-                                         │  (Gemini AI) │
-                                         └──────────────┘
-                                                ▼
-┌─────────────┐  Consumes "tender_result"  ┌──────────────┐
-│   NestJS    │ ← ────────────────────────  │ analysis_res │
-│  Backend    │                           │   (fanout)   │
-└─────────────┘                           └──────────────┘
-```
-
-### RabbitMQ Setup
-
-**For Development:**
-```bash
-# Using Docker (easiest)
-docker run -d --hostname rabbitmq --name rabbitmq -p 5672:27015 -p 15672:15672 rabbitmq:4-management
-
-# Access management UI at: http://localhost:15672
-# Default credentials: guest / guest
-```
-
-**Or download** [RabbitMQ locally](https://www.rabbitmq.com/download.html)
-
-### Message Contracts
-
-**NestJS → Python** (published to `analysis_exchange`):
-```json
-{
-  "type": "tender_apply",
-  "bidNumber": "8481457",
-  "bidUrl": "s3://bucket/path/bid.pdf",
-  "companyDocuments": [
-    {"documentType": "gst", "fileUrl": "s3://bucket/gst.pdf"},
-    {"documentType": "pan", "fileUrl": "s3://bucket/pan.pdf"}
-  ],
-  "timestamp": "2026-03-06T12:00:00Z"
-}
-```
-
-**Python → NestJS** (published to `analysis_results_exchange`):
-```json
-{
-  "type": "tender_result",
-  "bidNumber": "8481457",
-  "status": "completed",
-  "bid_analysis": { ... },
-  "vendor_results": [ ... ],
-  "processing_time_seconds": 147.02
-}
-```
-
----
-
-## Architecture
-
-```
-app/
-├── main.py                 # FastAPI app + lifespan (starts RabbitMQ consumer)
-├── config.py               # pydantic-settings (env vars)
-├── logging_cfg.py          # Structured logging
-├── schemas.py              # Pydantic request / response models
-├── routers/
-│   ├── bid.py              # /analyze-bid endpoint
-│   ├── vendor.py           # /evaluate-vendor endpoint
-│   └── orchestrator.py     # Gemini orchestration logic
-├── services/
-│   ├── gemini_client.py    # Gemini Files API upload + generation
-│   ├── rabbitmq_consumer.py# Event consumer (listens to NestJS)
-│   ├── s3_client.py        # S3 document downloads
-│   ├── human_readable.py   # Response formatting
-│   └── prompts.py          # Prompt templates
-└── worker/
-    ├── main.py             # Standalone worker (queue-based)
-    ├── consumer.py         # RabbitMQ queue consumer
-    └── job_processor.py    # Job execution pipeline
-```
-
-### Components
-
-| Component | Purpose |
-|-----------|---------|
-| `rabbitmq_consumer.py` | Listens to `analysis_exchange` (fanout) from NestJS, publishes results to `analysis_results_exchange` |
-| `gemini_client.py` | Calls Gemini Files API for multimodal document analysis |
-| `job_processor.py` | Pure business logic—orchestrates bid analysis + vendor evaluation |
-| `s3_client.py` | Downloads PDFs from S3 (optional if using S3 for documents) |
-
----
-
-## Key Design Decisions
-
-| Decision                       | Rationale                                                        |
-| ------------------------------ | ---------------------------------------------------------------- |
-| No RAG / text-chunking         | Files uploaded to Gemini Files API; native multimodal reasoning.  |
-| `response_mime_type=json`      | Forces the model to return parseable JSON directly.              |
-| Bounding-box coordinates       | Every `reference` includes `(ymin, xmin, ymax, xmax)` for UI.   |
-| Strict key ordering in schemas | Pydantic models enforce the canonical key order.                 |
-| Async file handling            | `asyncio.to_thread` keeps the event loop non-blocking.           |
-
----
-
-## Environment Variables
-
-| Variable           | Required | Default           | Description                    |
-| ------------------ | -------- | ----------------- | ------------------------------ |
-| `GOOGLE_API_KEY`   | **Yes**  | —                 | Gemini API key                 |
-| `GEMINI_MODEL`     | No       | `gemini-1.5-pro`  | Model name                     |
-| `APP_ENV`          | No       | `development`     | `development` / `production`   |
-| `LOG_LEVEL`        | No       | `DEBUG`           | Python log level               |
-| `MAX_FILE_SIZE_MB` | No       | `50`              | Max upload size per file       |
-
----
-
-## Troubleshooting
-
-### Error: "Model gemini-1.5-pro is not found"
-
-**Cause:** Invalid, revoked, or incorrectly configured API key.
-
-**Fix:**
-
-1. **Verify your API key is valid:**
-   - Go to [Google AI Studio — API Keys](https://ai.google.dev/gemini-api/docs/api-key)
-   - Create a new API key if needed (free tier is available)
-   - Copy the full key (no spaces or line breaks) into your `.env` file
-
-2. **Check available models:**
+1. **Clone & Setup Environment**
    ```bash
-   # Activate venv first
-   .venv\Scripts\Activate.ps1  # Windows
-   
-   # List available models
-   python -c "
-   from google import genai
-   import os
-   client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
-   for model in client.models.list():
-       print(model.name)
-   "
+   python -m venv .venv
+   source .venv/bin/activate  # macOS/Linux
+   .venv\Scripts\activate     # Windows
+   pip install -r requirements.txt
    ```
 
-3. **Try an alternative model** (if `gemini-1.5-pro` is unavailable):
-   - `gemini-1.5-pro-latest`
-   - `gemini-2.0-flash`
-   - `gemini-1.5-flash`
-   
-   Update the `GEMINI_MODEL` variable in your `.env` and restart the server.
+2. **Configuration**
+   Create a `.env` file in the root:
+   ```env
+   GOOGLE_API_KEY=your_key_here
+   GEMINI_MODEL=gemini-1.5-pro
+   RABBITMQ_URL=amqp://guest:guest@localhost
+   ```
 
-### File Upload Fails
+3. **Run the Service**
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+   *The background RabbitMQ consumers will start automatically as part of the FastAPI lifespan.*
 
-- **Verify file format:** Only PDFs are accepted
-- **Check file size:** Default limit is 50 MB (set `MAX_FILE_SIZE_MB` in `.env`)
-- **Validate PDF:** Ensure the PDF is not corrupted
+---
 
-### Slow Response Times
+## 📡 API Endpoints
 
-- **Bid analysis:** 30–60 seconds (PDF pages + Gemini latency)
-- **Vendor evaluation:** 60–120 seconds (6-7 documents cross-referenced)
-- **Concurrent requests:** Service can handle ~50 concurrent requests
+- **Health Check**: `GET /health`
+- **Documentation**: `/docs` (Swagger UI)
+- **HSN Generation**: `POST /generate-hsn`
+- **Test Endpoints**: `/test/extract-rules`, `/test/analyze-bid`, `/test/full-eligibility`, etc.
 
-### Gemini API Rate Limits
+---
 
-- Free tier has generous limits (~1,500 requests/minute)
-- Check your usage at [Google AI Studio — API Overview](https://ai.google.dev/gemini-api/docs/usage-limits)
-- For production, consider upgrading or implementing request throttling
+## 🔄 RabbitMQ Configuration
+
+The service consumes from several specialized queues and publishes results back to the NestJS orchestration layer.
+
+- **Extraction**: `tender_extraction_jobs` -> `tender_extraction_results`
+- **Analysis**: `tender_analysis_jobs` -> `tender_analysis_results`
+- **HSN**: `hsn_requests_queue` -> `hsn_generation_results`
+- **Classification**: `rule_classification_jobs` -> `rule_classification_results`
+- **Evaluation**: `rule_evaluation_jobs` -> `rule_evaluation_results`
+
+---
+
+**Last Updated**: April 2026
+**Architecture**: Agent 1-5 Modular Design
